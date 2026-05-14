@@ -116,6 +116,55 @@ function tierColor(tier) {
   return { I: 0xffd700, II: 0x00bfff, III: 0xab47bc, IV: 0x78909c, V: 0x546e7a }[tier] || 0x7289da;
 }
 
+function getTierProgress(player, tier, nextTier) {
+  if (!nextTier) {
+    return { percentage: 100, remaining: 0, progress: 1 };
+  }
+
+  const range = Math.max(1, nextTier.min - tier.min);
+  const earned = Math.min(range, Math.max(0, (player.elo || 0) - tier.min));
+  const progress = earned / range;
+  const percentage = Math.round(progress * 1000) / 10;
+  const remaining = Math.max(0, nextTier.min - (player.elo || 0));
+  return { percentage, remaining, progress };
+}
+
+function buildRankBar(progress) {
+  const segments = 10;
+  const filled = Math.min(segments, Math.max(0, Math.round(progress * segments)));
+  return `${'✅'.repeat(filled)}${'⬛'.repeat(segments - filled)}`;
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString('en-US');
+}
+
+function buildEloProfileEmbed(target, player) {
+  const tier = getTierForElo(player.elo || 0);
+  const nextTier = TIERS[TIERS.indexOf(tier) - 1] || null;
+  const progress = getTierProgress(player, tier, nextTier);
+  const displayName = target.globalName || target.username;
+  const currentRank = `Tier ${tier.tier} | ${formatNumber(tier.min)}+ ELO`;
+  const nextRank = nextTier ? `Tier ${nextTier.tier} | ${formatNumber(nextTier.min)}+ ELO` : 'Max Rank';
+  const remainingLine = nextTier
+    ? `**${formatNumber(progress.remaining)} ELO remaining for ${nextRank}**`
+    : '**Max rank reached**';
+
+  return new EmbedBuilder()
+    .setColor(tierColor(tier.tier))
+    .setDescription([
+      `**${displayName}**`,
+      `${buildRankBar(progress.progress)} **${progress.percentage}%**`,
+      `Rank: **${currentRank}**`,
+      `ELO: **${formatNumber(player.elo)}**`,
+      `Record: **${player.wins || 0}W / ${player.losses || 0}L**`,
+      '',
+      remainingLine,
+    ].join('\n'))
+    .setThumbnail(target.displayAvatarURL({ size: 128 }))
+    .setTimestamp();
+}
+
 function buildMatchEloSummary(match, eloData) {
   const startElo = match.eloStart || {};
   const players = (match.queue || []).map(userId => {
@@ -188,22 +237,7 @@ const eloRankCommand = {
     const player = getPlayerElo(eloData, target.id);
     db.set(data);
 
-    const tier = getTierForElo(player.elo);
-    const nextTier = TIERS[TIERS.indexOf(tier) - 1] || null;
-    const eloToNext = nextTier ? Math.max(0, nextTier.min - player.elo) : null;
-    const progressBar = buildProgressBar(player.elo, tier, nextTier);
-
-    const embed = new EmbedBuilder()
-      .setTitle(`Tier ${tier.tier}`)
-      .setColor(tierColor(tier.tier))
-      .addFields(
-        { name: 'Player', value: `<@${target.id}>`, inline: true },
-        { name: 'ELO', value: `\`${player.elo}\``, inline: true },
-        { name: 'Record', value: `${player.wins || 0}W / ${player.losses || 0}L`, inline: true },
-        { name: 'Progress', value: progressBar + (nextTier ? `\n\`${eloToNext} ELO\` to **Tier ${nextTier.tier}**` : '\nMax tier reached.'), inline: false },
-      )
-      .setFooter({ text: 'Tier I = top rank | Tier V = starting rank' })
-      .setTimestamp();
+    const embed = buildEloProfileEmbed(target, player);
 
     await interaction.reply({ embeds: [embed] });
   },

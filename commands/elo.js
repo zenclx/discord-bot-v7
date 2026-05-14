@@ -139,11 +139,10 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString('en-US');
 }
 
-function buildEloProfileEmbed(target, player) {
+function buildEloProfileEmbed(target, player, displayName) {
   const tier = getTierForElo(player.elo || 0);
   const nextTier = TIERS[TIERS.indexOf(tier) - 1] || null;
   const progress = getTierProgress(player, tier, nextTier);
-  const displayName = target.globalName || target.username;
   const currentRank = `Tier ${tier.tier} | ${formatNumber(tier.min)}+ ELO`;
   const nextRank = nextTier ? `Tier ${nextTier.tier} | ${formatNumber(nextTier.min)}+ ELO` : 'Max Rank';
   const remainingLine = nextTier
@@ -232,12 +231,16 @@ const eloRankCommand = {
 
   async execute(interaction) {
     const target = interaction.options.getUser('user') || interaction.user;
+    const member = target.id === interaction.user.id
+      ? interaction.member
+      : await interaction.guild.members.fetch(target.id).catch(() => null);
+    const displayName = member?.displayName || target.globalName || target.username;
     const data = db.get();
     const eloData = getEloData(data);
     const player = getPlayerElo(eloData, target.id);
     db.set(data);
 
-    const embed = buildEloProfileEmbed(target, player);
+    const embed = buildEloProfileEmbed(target, player, displayName);
 
     await interaction.reply({ embeds: [embed] });
   },

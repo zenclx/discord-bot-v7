@@ -290,6 +290,28 @@ const eloResetPlayerCommand = {
   },
 };
 
+const eloResetAllCommand = {
+  data: new SlashCommandBuilder()
+    .setName('eloresetall')
+    .setDescription('Reset everyone\'s ELO and win/loss record to 0 (Admin only)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addBooleanOption(o => o.setName('confirm').setDescription('Confirm resetting all ELO data').setRequired(true)),
+
+  async execute(interaction) {
+    if (!interaction.options.getBoolean('confirm')) {
+      return interaction.reply({ content: 'Reset cancelled. Run `/eloresetall confirm:true` to confirm.', flags: 64 });
+    }
+
+    const data = db.get();
+    const eloData = getEloData(data);
+    const resetCount = Object.keys(eloData).length;
+    data.elo = {};
+    db.set(data);
+    await updateEloLeaderboard(interaction.client, interaction.guildId);
+    await interaction.reply({ content: `Reset ELO and win/loss records for **${resetCount}** players.`, flags: 64 });
+  },
+};
+
 const eloAdjustCommand = {
   data: new SlashCommandBuilder()
     .setName('eloadjust')
@@ -319,6 +341,7 @@ module.exports = {
   eloRankCommand,
   eloLeaderboardCommand,
   eloResetPlayerCommand,
+  eloResetAllCommand,
   eloAdjustCommand,
   applyMatchElo,
   buildMatchEloSummary,

@@ -688,7 +688,7 @@ module.exports = {
   postOrUpdateBracket, startBracket, scheduleChannelDelete,
   timers, canManageMatch, logMatchResult, MATCH_MANAGER_ROLES,
   postPredictionPoll, revealPrediction, scheduleMatchReminder,
-  matchReminderTimers, dmUser,
+  matchReminderTimers, dmUser, getMinPlayers,
 };
 
 

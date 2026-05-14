@@ -294,10 +294,13 @@ const eloResetAllCommand = {
   data: new SlashCommandBuilder()
     .setName('eloresetall')
     .setDescription('Reset everyone\'s ELO and win/loss record to 0 (Admin only)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addBooleanOption(o => o.setName('confirm').setDescription('Confirm resetting all ELO data').setRequired(true)),
 
   async execute(interaction) {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: 'Only administrators can reset all ELO data.', flags: 64 });
+    }
+
     if (!interaction.options.getBoolean('confirm')) {
       return interaction.reply({ content: 'Reset cancelled. Run `/eloresetall confirm:true` to confirm.', flags: 64 });
     }

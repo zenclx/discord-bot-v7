@@ -5,9 +5,13 @@
 const { REST, Routes } = require("@discordjs/rest");
 require("dotenv").config();
 
-const token = process.env.DISCORD_TOKEN;
-const clientId = process.env.CLIENT_ID;
-const guildId = process.env.GUILD_ID;
+function cleanEnvValue(value) {
+  return String(value || '').trim().replace(/^["']|["']$/g, '').trim();
+}
+
+const token = cleanEnvValue(process.env.DISCORD_TOKEN).replace(/^Bot\s+/i, '');
+const clientId = cleanEnvValue(process.env.CLIENT_ID);
+const guildId = cleanEnvValue(process.env.GUILD_ID);
 
 if (!token || !clientId || !guildId) {
   console.error("Missing DISCORD_TOKEN, CLIENT_ID, or GUILD_ID in .env");

@@ -30,6 +30,21 @@ const path = require('path');
 const db = require('./database');
 const { buildScoreboardEmbed } = require('./utils');
 
+function cleanEnvValue(value) {
+  return String(value || '').trim().replace(/^["']|["']$/g, '').trim();
+}
+
+const DISCORD_TOKEN = cleanEnvValue(process.env.DISCORD_TOKEN).replace(/^Bot\s+/i, '');
+const CLIENT_ID = cleanEnvValue(process.env.CLIENT_ID);
+const GUILD_ID = cleanEnvValue(process.env.GUILD_ID);
+
+for (const [name, value] of Object.entries({ DISCORD_TOKEN, CLIENT_ID, GUILD_ID })) {
+  if (!value) {
+    console.error(`Missing required Render environment variable: ${name}`);
+    process.exit(1);
+  }
+}
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 client.commands = new Collection();
 
@@ -55,10 +70,10 @@ for (const file of commandFiles) {
 }
 
 async function registerCommands() {
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
   try {
     console.log('Registering slash commands...');
-    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commandsData });
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commandsData });
     console.log('✅ Commands registered!');
   } catch (e) { console.error('Failed to register commands:', e); }
 }
@@ -489,4 +504,4 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(DISCORD_TOKEN);

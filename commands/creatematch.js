@@ -15,6 +15,11 @@ const MATCH_MANAGER_ROLES = ['1387600871377993820'];
 const MATCH_CATEGORY_ID = '1333182926858223718';
 const REMINDER_AFTER_MS = 15 * 60 * 1000;
 
+function getMinPlayers(match) {
+  if (match.testMatch) return match.type === '1v1' ? 2 : 4;
+  return match.type === '1v1' ? 4 : 6;
+}
+
 // ── Permission ────────────────────────────────────────────────────────────────
 function canManageMatch(member) {
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
@@ -32,19 +37,19 @@ function buildQueueCancelledEmbed(match, reason = 'The host cancelled this queue
 // ── Queue embed ───────────────────────────────────────────────────────────────
 function buildQueueEmbed(match) {
   const typeLabel = match.type === '1v1' ? '1v1' : '2v2';
-  const minPlayers = match.type === '1v1' ? 4 : 6;
+  const minPlayers = getMinPlayers(match);
   const timeLeft = Math.max(0, Math.round((match.endsAt - Date.now()) / 1000));
   const mins = Math.floor(timeLeft / 60);
   const secs = String(timeLeft % 60).padStart(2, '0');
   const playerMentions = match.queue.map(id => `<@${id}>`).join('\n') || '*None yet*';
 
   const embed = new EmbedBuilder()
-    .setTitle(`⚔️ ${typeLabel} Match Queue`)
+    .setTitle(`Match Queue${match.testMatch ? ' - Test' : ''} (${typeLabel})`)
     .setColor(DARK_BLUE)
     .addFields(
       { name: '👥 Players Queued', value: `**${match.queue.length}** joined\n${playerMentions}`, inline: true },
       { name: '⏳ Time Remaining', value: `**${mins}m ${secs}s**`, inline: true },
-      { name: '📋 Min to Start', value: `**${minPlayers}** players`, inline: true },
+      { name: 'Min to Start', value: `**${minPlayers}** players${match.testMatch ? '\nTest mode' : ''}`, inline: true },
     )
     .setFooter({ text: 'Click Join Queue to enter! Host can force-start anytime.' })
     .setTimestamp();
@@ -493,7 +498,7 @@ async function startBracket(client, matchId) {
   const match = data.matches[matchId];
   if (!match || match.status !== 'queuing') return;
 
-  const minPlayers = match.type === '1v1' ? 4 : 6;
+  const minPlayers = getMinPlayers(match);
   if (match.queue.length < minPlayers) {
     try {
       const ch = await client.channels.fetch(match.channelId);
@@ -511,7 +516,7 @@ async function startBracket(client, matchId) {
 
   match.status = 'bracket';
 
-  if (match.type === '2v2') {
+  if (match.type === '2v2' && !match.testMatch) {
     match.teams = pairIntoTeams(match.queue);
     match.bracket = generateTeamBracket(match.teams);
   } else {
@@ -601,7 +606,8 @@ module.exports = {
     .addStringOption(o => o.setName('type').setDescription('Match type').setRequired(true)
       .addChoices({ name: '1v1', value: '1v1' }, { name: '2v2', value: '2v2' }))
     .addStringOption(o => o.setName('scoreboard').setDescription('Scoreboard to credit wins to').setRequired(false).setAutocomplete(true))
-    .addStringOption(o => o.setName('prize').setDescription('Prize for the winner').setRequired(false)),
+    .addStringOption(o => o.setName('prize').setDescription('Prize for the winner').setRequired(false))
+    .addBooleanOption(o => o.setName('test_match').setDescription('Lower the player minimum so staff can test brackets').setRequired(false)),
 
   async autocomplete(interaction) {
     const data = db.get();
@@ -616,6 +622,7 @@ module.exports = {
     const type = interaction.options.getString('type');
     const sbName = interaction.options.getString('scoreboard');
     const prize = interaction.options.getString('prize') || null;
+    const testMatch = interaction.options.getBoolean('test_match') || false;
     const matchNum = helpers?.getNextMatchNumber?.(interaction.guildId) ?? 0;
     const matchId = `match-${interaction.guildId}-${Date.now()}`;
     const endsAt = Date.now() + QUEUE_DURATION_MS;
@@ -625,7 +632,7 @@ module.exports = {
       type, scoreboardName: sbName || null, prize, queue: [], status: 'queuing',
       endsAt, bracket: [], currentRound: 0, messageId: null,
       privateChannelId: null, bracketMessageId: null, hostId: interaction.user.id,
-      matchNum, teams: null, bo3Mode: 'none', region: null,
+      matchNum, teams: null, bo3Mode: 'none', region: null, testMatch,
     };
 
     const joinRow = new ActionRowBuilder().addComponents(

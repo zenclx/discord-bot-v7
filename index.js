@@ -353,7 +353,7 @@ client.on('interactionCreate', async interaction => {
     if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
     if (!match || match.status !== 'queuing') return interaction.reply({ content: '❌ Queue not open.', flags: 64 });
-    const minPlayers = match.type === '1v1' ? 4 : 6;
+    const minPlayers = match.testMatch ? (match.type === '1v1' ? 2 : 4) : (match.type === '1v1' ? 4 : 6);
     if (match.queue.length < minPlayers) return interaction.reply({ content: `❌ Need **${minPlayers}** players. Have **${match.queue.length}**.`, flags: 64 });
     const t = timers.get(matchId);
     if (t) { clearTimeout(t.timer); clearInterval(t.interval); timers.delete(matchId); }

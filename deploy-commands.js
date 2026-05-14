@@ -113,6 +113,9 @@ const commands = [
     )
     .addStringOption((o) =>
       o.setName("board").setDescription("Scoreboard to award wins to (optional)")
+    )
+    .addBooleanOption((o) =>
+      o.setName("test_match").setDescription("Lower the player minimum so staff can test brackets")
     ),
 ].map((cmd) => cmd.toJSON());
 

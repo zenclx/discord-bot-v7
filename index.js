@@ -280,6 +280,7 @@ client.on('interactionCreate', async interaction => {
   if (customId.startsWith('join_queue_')) {
     const matchId = customId.replace('join_queue_', '');
     const data = db.get();
+    if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
     if (!match || match.status !== 'queuing') return interaction.reply({ content: '❌ Queue is closed.', flags: 64 });
     if (match.queue.includes(interaction.user.id)) return interaction.reply({ content: '⚠️ You are already in the queue!', flags: 64 });
@@ -293,6 +294,7 @@ client.on('interactionCreate', async interaction => {
   if (customId.startsWith('leave_queue_')) {
     const matchId = customId.replace('leave_queue_', '');
     const data = db.get();
+    if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
     if (!match || match.status !== 'queuing') return interaction.reply({ content: '❌ Queue is closed.', flags: 64 });
     match.queue = match.queue.filter(id => id !== interaction.user.id);
@@ -306,6 +308,7 @@ client.on('interactionCreate', async interaction => {
     const matchId = customId.replace('addminute_', '');
     if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ Staff only.', flags: 64 });
     const data = db.get();
+    if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
     if (!match || match.status !== 'queuing') return interaction.reply({ content: '❌ Queue closed.', flags: 64 });
     match.endsAt += 60000;
@@ -324,6 +327,7 @@ client.on('interactionCreate', async interaction => {
   if (customId.startsWith('cancel_queue_')) {
     const matchId = customId.replace('cancel_queue_', '');
     const data = db.get();
+    if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
     if (!match || match.status !== 'queuing') return interaction.reply({ content: 'Queue is already closed.', flags: 64 });
     if (interaction.user.id !== match.hostId && !canManageMatch(interaction.member)) {
@@ -343,6 +347,7 @@ client.on('interactionCreate', async interaction => {
     const matchId = customId.replace('forcestart_', '');
     if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ Staff only.', flags: 64 });
     const data = db.get();
+    if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
     if (!match || match.status !== 'queuing') return interaction.reply({ content: '❌ Queue not open.', flags: 64 });
     const minPlayers = match.type === '1v1' ? 4 : 6;

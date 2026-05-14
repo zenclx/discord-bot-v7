@@ -639,18 +639,23 @@ module.exports = {
       new ButtonBuilder().setCustomId(`cancel_queue_${matchId}`).setLabel('Cancel Queue').setStyle(ButtonStyle.Danger),
     );
 
-    await interaction.reply({ embeds: [buildQueueEmbed(match)], components: [joinRow, cancelRow] });
-    const msg = await interaction.fetchReply();
-    match.messageId = msg.id;
-
     const data = db.get();
     if (!data.matches) data.matches = {};
     data.matches[matchId] = match;
     db.set(data);
 
+    await interaction.reply({ embeds: [buildQueueEmbed(match)], components: [joinRow, cancelRow] });
+    const msg = await interaction.fetchReply();
+    match.messageId = msg.id;
+
+    const savedData = db.get();
+    if (!savedData.matches) savedData.matches = {};
+    savedData.matches[matchId] = match;
+    db.set(savedData);
+
     const intervalId = setInterval(async () => {
       const fresh = db.get();
-      const m = fresh.matches[matchId];
+      const m = fresh.matches?.[matchId];
       if (!m || m.status !== 'queuing') { clearInterval(intervalId); return; }
       try {
         const ch = await interaction.client.channels.fetch(m.channelId);

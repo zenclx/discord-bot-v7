@@ -1,11 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, 'data.json');
+const DB_PATH = process.env.DATA_PATH || path.join(__dirname, 'data.json');
 
 function load() {
   if (!fs.existsSync(DB_PATH)) {
     const defaults = { scoreboards: {}, matches: {}, settings: {} };
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
     fs.writeFileSync(DB_PATH, JSON.stringify(defaults, null, 2));
     return defaults;
   }
@@ -17,6 +18,7 @@ function load() {
 }
 
 function save(data) {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 

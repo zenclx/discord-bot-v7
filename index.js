@@ -153,6 +153,7 @@ client.on('interactionCreate', async interaction => {
 
   if (!interaction.isButton()) return;
   const { customId } = interaction;
+  try {
 
   // ── Scoreboard: reset ─────────────────────────────────────────────────────
   if (customId.startsWith('reset_confirm_')) {
@@ -362,20 +363,22 @@ client.on('interactionCreate', async interaction => {
     // parts: ['win', matchId, round, matchIndex, winnerId]
     if (parts.length !== 5) return interaction.reply({ content: '❌ Malformed button ID.', flags: 64 });
 
+    await interaction.deferReply({ flags: 64 });
+
     const [, matchId, roundStr, matchIndexStr, winnerId] = parts;
     const round = parseInt(roundStr);
     const matchIndex = parseInt(matchIndexStr);
 
     const data = db.get();
     const match = data.matches[matchId];
-    if (!match) return interaction.reply({ content: '❌ Match not found. It may have expired.', flags: 64 });
+    if (!match) return interaction.editReply({ content: 'Match not found. It may have expired.' });
 
     const bracketRound = match.bracket[round];
-    if (!bracketRound) return interaction.reply({ content: '❌ Round not found.', flags: 64 });
+    if (!bracketRound) return interaction.editReply({ content: 'Round not found.' });
 
     const bracketMatch = bracketRound[matchIndex];
-    if (!bracketMatch) return interaction.reply({ content: '❌ Match slot not found.', flags: 64 });
-    if (bracketMatch.winner) return interaction.reply({ content: '⚠️ Winner already selected for that match.', flags: 64 });
+    if (!bracketMatch) return interaction.editReply({ content: 'Match slot not found.' });
+    if (bracketMatch.winner) return interaction.editReply({ content: 'Winner already selected for that match.' });
 
     const loserId = bracketMatch.p1 === winnerId ? bracketMatch.p2 : bracketMatch.p1;
     bracketMatch.winner = winnerId;
@@ -464,7 +467,7 @@ client.on('interactionCreate', async interaction => {
           `🏆 **Congratulations!** You won Match #${match.matchNum ?? '?'} (${match.type.toUpperCase()})!${match.prize ? `\n🎁 Prize: ${match.prize}` : ''}`
         );
 
-        return interaction.reply({ content: `🏆 Tournament over! Champion: <@${champion}>`, flags: 64 });
+        return interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` });
       }
 
       // Advance to next round
@@ -492,7 +495,7 @@ client.on('interactionCreate', async interaction => {
       }
 
       await postOrUpdateBracket(client, match);
-      return interaction.reply({ content: `✅ Round ${round + 1} complete — Round ${round + 2} is now live!`, flags: 64 });
+      return interaction.editReply({ content: `Round ${round + 1} complete - Round ${round + 2} is now live!` });
     }
 
     // Round still going — grant ELO, update bracket image
@@ -500,7 +503,14 @@ client.on('interactionCreate', async interaction => {
     pendingData.matches[matchId] = match;
     db.set(pendingData);
     await postOrUpdateBracket(client, match);
-    return interaction.reply({ content: `✅ Winner recorded for Match ${matchIndex + 1}. Select remaining winners above.`, flags: 64 });
+    return interaction.editReply({ content: `Winner recorded for Match ${matchIndex + 1}. Select remaining winners above.` });
+  }
+  } catch (e) {
+    console.error('Button interaction failed:', e);
+    const message = { content: 'Could not complete that button action. Please try again.', flags: 64 };
+    if (interaction.deferred && !interaction.replied) await interaction.editReply({ content: message.content }).catch(() => {});
+    else if (interaction.replied) await interaction.followUp(message).catch(() => {});
+    else await interaction.reply(message).catch(() => {});
   }
 });
 

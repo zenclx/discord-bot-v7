@@ -4,7 +4,6 @@ services:
     runtime: node
     buildCommand: npm install
     startCommand: npm start
-    plan: free
     envVars:
       - key: DISCORD_TOKEN
         sync: false       # You'll paste this in Render dashboard
@@ -16,3 +15,9 @@ services:
         value: production
       - key: NODE_VERSION
         value: 22
+      - key: DATA_PATH
+        value: /var/data/data.json
+    disk:
+      name: bot-data
+      mountPath: /var/data
+      sizeGB: 1

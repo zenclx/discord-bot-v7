@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = process.env.DATA_PATH || path.join(__dirname, 'data.json');
+const DEFAULT_RENDER_DATA_PATH = '/var/data/data.json';
+const DB_PATH = process.env.DATA_PATH || (process.env.RENDER ? DEFAULT_RENDER_DATA_PATH : path.join(__dirname, 'data.json'));
 
 function load() {
   if (!fs.existsSync(DB_PATH)) {

@@ -4,6 +4,7 @@ const path = require('path');
 const FALLBACK_DB_PATH = path.join(__dirname, 'data.json');
 const PRIMARY_DB_PATH = process.env.DATA_PATH || FALLBACK_DB_PATH;
 let activeDbPath = PRIMARY_DB_PATH;
+let memoryData = null;
 
 function defaults() {
   return { scoreboards: {}, matches: {}, settings: {} };
@@ -13,6 +14,10 @@ function ensureWritable(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
+function clone(data) {
+  return JSON.parse(JSON.stringify(data));
+}
+
 function switchToFallback(error) {
   if (activeDbPath === FALLBACK_DB_PATH) throw error;
   console.warn(`Primary data path unavailable (${activeDbPath}): ${error.message}. Falling back to ${FALLBACK_DB_PATH}`);
@@ -20,32 +25,45 @@ function switchToFallback(error) {
 }
 
 function load() {
+  if (memoryData) return clone(memoryData);
+
   try {
     if (!fs.existsSync(activeDbPath)) {
       const data = defaults();
       ensureWritable(activeDbPath);
-      fs.writeFileSync(activeDbPath, JSON.stringify(data, null, 2));
-      return data;
+      atomicWrite(activeDbPath, data);
+      memoryData = data;
+      return clone(memoryData);
     }
-    return JSON.parse(fs.readFileSync(activeDbPath, 'utf8'));
+    memoryData = JSON.parse(fs.readFileSync(activeDbPath, 'utf8'));
+    return clone(memoryData);
   } catch (e) {
     if (e.code === 'EACCES' || e.code === 'EROFS' || e.code === 'ENOENT') {
       switchToFallback(e);
       return load();
     }
     console.error('Failed to load data file:', e.message);
-    return defaults();
+    memoryData = memoryData || defaults();
+    return clone(memoryData);
   }
 }
 
+function atomicWrite(filePath, data) {
+  const tmpPath = `${filePath}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+  fs.renameSync(tmpPath, filePath);
+}
+
 function save(data) {
+  memoryData = clone(data);
+
   try {
     ensureWritable(activeDbPath);
-    fs.writeFileSync(activeDbPath, JSON.stringify(data, null, 2));
+    atomicWrite(activeDbPath, memoryData);
   } catch (e) {
     if (e.code === 'EACCES' || e.code === 'EROFS' || e.code === 'ENOENT') {
       switchToFallback(e);
-      save(data);
+      save(memoryData);
       return;
     }
     throw e;

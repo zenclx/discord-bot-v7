@@ -282,7 +282,10 @@ client.on('interactionCreate', async interaction => {
     const data = db.get();
     if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
-    if (!match || match.status !== 'queuing') return interaction.reply({ content: '❌ Queue is closed.', flags: 64 });
+    if (!match || match.status !== 'queuing') {
+      console.warn(`Join queue rejected for ${matchId}: ${match ? `status=${match.status}` : 'match missing'}`);
+      return interaction.reply({ content: 'Queue is closed.', flags: 64 });
+    }
     if (match.queue.includes(interaction.user.id)) return interaction.reply({ content: '⚠️ You are already in the queue!', flags: 64 });
     match.queue.push(interaction.user.id);
     data.matches[matchId] = match;

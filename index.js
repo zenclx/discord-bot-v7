@@ -28,6 +28,7 @@ const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord
 const fs = require('fs');
 const path = require('path');
 const db = require('./database');
+const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup');
 const { buildScoreboardEmbed } = require('./utils');
 
 function cleanEnvValue(value) {
@@ -108,6 +109,8 @@ function restoreScheduledMatches() {
 
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
+  await restoreFromDiscord(client);
+  db.onSet(() => scheduleDiscordBackup(client));
   await registerCommands();
   restoreScheduledMatches();
 });

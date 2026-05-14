@@ -5,6 +5,7 @@ const FALLBACK_DB_PATH = path.join(__dirname, 'data.json');
 const PRIMARY_DB_PATH = process.env.DATA_PATH || FALLBACK_DB_PATH;
 let activeDbPath = PRIMARY_DB_PATH;
 let memoryData = null;
+const listeners = new Set();
 
 function defaults() {
   return { scoreboards: {}, matches: {}, settings: {} };
@@ -54,7 +55,7 @@ function atomicWrite(filePath, data) {
   fs.renameSync(tmpPath, filePath);
 }
 
-function save(data) {
+function save(data, { notify = true } = {}) {
   memoryData = clone(data);
 
   try {
@@ -68,6 +69,12 @@ function save(data) {
     }
     throw e;
   }
+
+  if (notify) {
+    for (const listener of listeners) {
+      try { listener(clone(memoryData)); } catch {}
+    }
+  }
 }
 
 function get() {
@@ -78,4 +85,13 @@ function set(data) {
   save(data);
 }
 
-module.exports = { get, set };
+function replace(data, { notify = false } = {}) {
+  save(data || defaults(), { notify });
+}
+
+function onSet(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+module.exports = { get, set, replace, onSet };

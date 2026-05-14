@@ -4,6 +4,7 @@ const {
   ChannelType, AttachmentBuilder,
 } = require('discord.js');
 const db = require('../database');
+const { saveToDiscord } = require('../discordBackup');
 const { DARK_BLUE } = require('../utils');
 const { buildBracketImage } = require('../bracketImage');
 const { getEloData, getPlayerElo } = require('./elo');
@@ -618,6 +619,7 @@ module.exports = {
 
   async execute(interaction, helpers = {}) {
     if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ You do not have permission to create matches.', flags: 64 });
+    await interaction.deferReply();
 
     const type = interaction.options.getString('type');
     const sbName = interaction.options.getString('scoreboard');
@@ -650,8 +652,9 @@ module.exports = {
     if (!data.matches) data.matches = {};
     data.matches[matchId] = match;
     db.set(data);
+    await saveToDiscord(interaction.client);
 
-    await interaction.reply({ embeds: [buildQueueEmbed(match)], components: [joinRow, cancelRow] });
+    await interaction.editReply({ embeds: [buildQueueEmbed(match)], components: [joinRow, cancelRow] });
     const msg = await interaction.fetchReply();
     match.messageId = msg.id;
 

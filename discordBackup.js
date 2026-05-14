@@ -134,4 +134,4 @@ function scheduleDiscordBackup(client) {
   }, 1500);
 }
 
-module.exports = { restoreFromDiscord, scheduleDiscordBackup };
+module.exports = { restoreFromDiscord, saveToDiscord, scheduleDiscordBackup };

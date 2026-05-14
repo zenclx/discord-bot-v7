@@ -219,6 +219,13 @@ async function updateEloLeaderboard(client, guildId) {
     const message = await channel.messages.fetch(board.messageId);
     await message.edit({ embeds: [buildEloLeaderboardEmbed(getEloData(data))] });
   } catch (e) {
+    if (e.code === 10003 || e.code === 10008 || e.code === 50001 || e.code === 50013) {
+      const data = db.get();
+      if (data.eloLeaderboards?.[guildId]) {
+        delete data.eloLeaderboards[guildId];
+        db.set(data);
+      }
+    }
     console.error('updateEloLeaderboard error:', e.message);
   }
 }
@@ -231,10 +238,9 @@ const eloRankCommand = {
 
   async execute(interaction) {
     const target = interaction.options.getUser('user') || interaction.user;
-    const member = target.id === interaction.user.id
-      ? interaction.member
-      : await interaction.guild.members.fetch(target.id).catch(() => null);
-    const displayName = member?.displayName || target.globalName || target.username;
+    const selectedMember = interaction.options.getMember('user');
+    const member = selectedMember || (target.id === interaction.user.id ? interaction.member : null);
+    const displayName = member?.displayName || member?.nick || target.globalName || target.username;
     const data = db.get();
     const eloData = getEloData(data);
     const player = getPlayerElo(eloData, target.id);

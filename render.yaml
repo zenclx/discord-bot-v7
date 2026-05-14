@@ -15,9 +15,3 @@ services:
         value: production
       - key: NODE_VERSION
         value: 22
-      - key: DATA_PATH
-        value: /var/data/data.json
-    disk:
-      name: bot-data
-      mountPath: /var/data
-      sizeGB: 1

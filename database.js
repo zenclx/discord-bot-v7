@@ -1,9 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_RENDER_DATA_PATH = '/var/data/data.json';
 const FALLBACK_DB_PATH = path.join(__dirname, 'data.json');
-const PRIMARY_DB_PATH = process.env.DATA_PATH || (process.env.RENDER ? DEFAULT_RENDER_DATA_PATH : FALLBACK_DB_PATH);
+const PRIMARY_DB_PATH = process.env.DATA_PATH || FALLBACK_DB_PATH;
 let activeDbPath = PRIMARY_DB_PATH;
 
 function defaults() {

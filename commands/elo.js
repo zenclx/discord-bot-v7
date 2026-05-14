@@ -10,22 +10,22 @@ const TIER_ROLES = {
 };
 
 const TIERS = [
-  { tier: 'I', emoji: 'Crown', min: 2000, roleId: TIER_ROLES.I },
-  { tier: 'II', emoji: 'Diamond', min: 1600, roleId: TIER_ROLES.II },
-  { tier: 'III', emoji: 'Arcane', min: 1200, roleId: TIER_ROLES.III },
-  { tier: 'IV', emoji: 'Spark', min: 800, roleId: TIER_ROLES.IV },
+  { tier: 'I', emoji: 'Crown', min: 4000, roleId: TIER_ROLES.I },
+  { tier: 'II', emoji: 'Diamond', min: 3000, roleId: TIER_ROLES.II },
+  { tier: 'III', emoji: 'Arcane', min: 2000, roleId: TIER_ROLES.III },
+  { tier: 'IV', emoji: 'Spark', min: 1000, roleId: TIER_ROLES.IV },
   { tier: 'V', emoji: 'Shield', min: 0, roleId: TIER_ROLES.V },
 ];
 
 const STARTING_ELO = 0;
-const LOSS_PENALTY = 10;
+const LOSS_PENALTY = 25;
 
 function getWinElo(roundIndex, isFinalRound) {
-  if (isFinalRound) return 100;
-  if (roundIndex === 0) return 20;
-  if (roundIndex === 1) return 30;
-  if (roundIndex === 2) return 45;
-  return 60;
+  if (isFinalRound) return 75;
+  if (roundIndex === 0) return 15;
+  if (roundIndex === 1) return 25;
+  if (roundIndex === 2) return 40;
+  return 50;
 }
 
 function getTierForElo(elo) {

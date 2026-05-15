@@ -195,7 +195,7 @@ function buildMatchEloSummary(match, eloData) {
 
 function buildEloLeaderboardEmbed(eloData) {
   const sorted = Object.entries(eloData || {})
-    .map(([userId, p]) => ({ userId, elo: p.elo || 0, wins: p.wins || 0, losses: p.losses || 0 }))
+    .map(([userId, p]) => ({ userId, elo: p.elo || 0, wins: p.wins || 0, losses: p.losses || 0, currentStreak: p.currentStreak || 0 }))
     .sort((a, b) => b.elo - a.elo || b.wins - a.wins)
     .slice(0, 20);
 
@@ -203,7 +203,8 @@ function buildEloLeaderboardEmbed(eloData) {
     ? sorted.map((p, i) => {
       const tier = getTierForElo(p.elo);
       const medal = ['🥇', '🥈', '🥉'][i] || `**${i + 1}.**`;
-      return `${medal} <@${p.userId}> — \`${p.elo} ELO\` — Tier ${tier.tier} — ${p.wins}W/${p.losses}L`;
+      const streak = p.currentStreak > 0 ? ` - ${p.currentStreak}W streak` : '';
+      return `${medal} <@${p.userId}> - \`${p.elo} ELO\` - Tier ${tier.tier} - ${p.wins}W/${p.losses}L${streak}`;
     }).join('\n')
     : 'No ELO data yet. Play some matches!';
 

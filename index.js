@@ -250,9 +250,9 @@ client.on('interactionCreate', async interaction => {
 
   // Load match helpers
   const {
-    buildQueueEmbed, buildQueueCancelledEmbed, timers, startBracket, canManageMatch, scheduleChannelDelete,
+    buildQueueEmbed, buildQueueCancelledEmbed, buildCheckInEmbed, makeCheckInRows, timers, startBracket, canManageMatch, scheduleChannelDelete,
     buildNextRound, fetchDisplayNames, postOrUpdateBracket, logMatchResult,
-    revealPrediction, scheduleMatchReminder, dmUser, postPredictionPoll, DEFAULT_LOG_CHANNEL_ID,
+    revealPrediction, scheduleMatchReminder, dmUser, postPredictionPoll, DEFAULT_LOG_CHANNEL_ID, getMinPlayers,
   } = require('./commands/creatematch');
   const { checkAchievements } = require('./commands/achievements');
   const { applyMatchElo, applyMatchStreaks, buildMatchEloSummary, getEloData } = require('./commands/elo');
@@ -361,6 +361,20 @@ client.on('interactionCreate', async interaction => {
   }
 
   // ── Queue: leave ──────────────────────────────────────────────────────────
+  if (customId.startsWith('checkin_')) {
+    const matchId = customId.replace('checkin_', '');
+    const data = db.get();
+    const match = data.matches?.[matchId];
+    if (!match || match.status !== 'checking') return interaction.reply({ content: 'Check-in is not open.', flags: 64 });
+    if (!match.queue.includes(interaction.user.id)) return interaction.reply({ content: 'You are not in this match.', flags: 64 });
+    if (!match.checkIns) match.checkIns = {};
+    match.checkIns[interaction.user.id] = Date.now();
+    data.matches[matchId] = match;
+    db.set(data);
+    await saveToDiscord(client);
+    return interaction.update({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) });
+  }
+
   if (customId.startsWith('leave_queue_')) {
     const matchId = customId.replace('leave_queue_', '');
     const data = db.get();
@@ -399,14 +413,21 @@ client.on('interactionCreate', async interaction => {
     const data = db.get();
     if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
-    if (!match || match.status !== 'queuing') return interaction.reply({ content: 'Queue is already closed.', flags: 64 });
+    if (!match || !['queuing', 'checking'].includes(match.status)) return interaction.reply({ content: 'Queue is already closed.', flags: 64 });
     if (interaction.user.id !== match.hostId && !canManageMatch(interaction.member)) {
       return interaction.reply({ content: 'Only the host or match staff can cancel this queue.', flags: 64 });
     }
     const t = timers.get(matchId);
-    if (t) { clearTimeout(t.timer); clearInterval(t.interval); timers.delete(matchId); }
+    if (t) {
+      clearTimeout(t.timer);
+      clearInterval(t.interval);
+      clearTimeout(t.checkinTimer);
+      clearInterval(t.checkinInterval);
+      timers.delete(matchId);
+    }
     delete data.matches[matchId];
     db.set(data);
+    await saveToDiscord(client);
     return interaction.update({
       embeds: [buildQueueCancelledEmbed(match, 'Queue cancelled by the host before the match started.')],
       components: [],
@@ -419,11 +440,33 @@ client.on('interactionCreate', async interaction => {
     const data = db.get();
     if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
+    if (match?.status === 'checking') {
+      const minPlayers = getMinPlayers(match);
+      const availablePlayers = Object.keys(match.checkIns || {}).length;
+      if (availablePlayers < minPlayers) return interaction.reply({ content: `Need **${minPlayers}** checked-in players. Have **${availablePlayers}**.`, flags: 64 });
+      const t = timers.get(matchId);
+      if (t) {
+        clearTimeout(t.timer);
+        clearInterval(t.interval);
+        clearTimeout(t.checkinTimer);
+        clearInterval(t.checkinInterval);
+        timers.delete(matchId);
+      }
+      await interaction.deferUpdate();
+      await startBracket(client, matchId);
+      return;
+    }
     if (!match || match.status !== 'queuing') return interaction.reply({ content: '❌ Queue not open.', flags: 64 });
-    const minPlayers = match.testMatch ? (match.type === '1v1' ? 2 : 4) : (match.type === '1v1' ? 4 : 6);
+    const minPlayers = getMinPlayers(match);
     if (match.queue.length < minPlayers) return interaction.reply({ content: `❌ Need **${minPlayers}** players. Have **${match.queue.length}**.`, flags: 64 });
     const t = timers.get(matchId);
-    if (t) { clearTimeout(t.timer); clearInterval(t.interval); timers.delete(matchId); }
+    if (t) {
+      clearTimeout(t.timer);
+      clearInterval(t.interval);
+      clearTimeout(t.checkinTimer);
+      clearInterval(t.checkinInterval);
+      timers.delete(matchId);
+    }
     await interaction.deferUpdate();
     await startBracket(client, matchId);
     return;

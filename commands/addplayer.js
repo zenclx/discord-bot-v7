@@ -6,13 +6,16 @@ const { buildQueueEmbed, canManageMatch, getMinPlayers } = require('./creatematc
 function findCurrentQueue(data, interaction, requestedMatchId) {
   if (requestedMatchId) return data.matches?.[requestedMatchId] || null;
 
-  return Object.values(data.matches || {})
+  const matches = Object.values(data.matches || {})
     .filter(match =>
       match.guildId === interaction.guildId
-      && match.channelId === interaction.channelId
-      && match.status === 'queuing'
+      && ['queuing', 'checking'].includes(match.status)
     )
-    .sort((a, b) => (b.endsAt || 0) - (a.endsAt || 0))[0] || null;
+    .sort((a, b) => (b.endsAt || b.checkInEndsAt || 0) - (a.endsAt || a.checkInEndsAt || 0));
+
+  return matches.find(match =>
+    match.channelId === interaction.channelId || match.privateChannelId === interaction.channelId
+  ) || matches[0] || null;
 }
 
 module.exports = {
@@ -36,7 +39,7 @@ module.exports = {
     if (!match) {
       return interaction.reply({ content: 'No open queue found. Use `matchid` if the queue is in another channel.', flags: 64 });
     }
-    if (match.status !== 'queuing') {
+    if (!['queuing', 'checking'].includes(match.status)) {
       return interaction.reply({ content: 'That match has already started, so players can no longer be added.', flags: 64 });
     }
     if (match.queue.includes(player.id)) {
@@ -44,6 +47,10 @@ module.exports = {
     }
 
     match.queue.push(player.id);
+    if (match.status === 'checking') {
+      if (!match.checkIns) match.checkIns = {};
+      delete match.checkIns[player.id];
+    }
     data.matches[match.id] = match;
     db.set(data);
     await saveToDiscord(interaction.client);
@@ -51,7 +58,12 @@ module.exports = {
     try {
       const channel = await interaction.client.channels.fetch(match.channelId);
       const message = await channel.messages.fetch(match.messageId);
-      await message.edit({ embeds: [buildQueueEmbed(match)] });
+      const { buildCheckInEmbed, makeCheckInRows } = require('./creatematch');
+      if (match.status === 'checking') {
+        await message.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
+      } else {
+        await message.edit({ embeds: [buildQueueEmbed(match)] });
+      }
     } catch (error) {
       console.error('addplayer queue message update failed:', error.message);
     }

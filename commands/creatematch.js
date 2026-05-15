@@ -10,6 +10,7 @@ const { buildBracketImage } = require('../bracketImage');
 const { getEloData, getPlayerElo } = require('./elo');
 
 const QUEUE_DURATION_MS = 5 * 60 * 1000;
+const CHECKIN_DURATION_MS = 5 * 60 * 1000;
 const timers = new Map();
 const matchReminderTimers = new Map();
 const MATCH_MANAGER_ROLES = ['1387600871377993820'];
@@ -62,6 +63,37 @@ function buildQueueEmbed(match) {
 
   if (match.prize) embed.addFields({ name: '🎁 Prize', value: `**${match.prize}**`, inline: false });
   return embed;
+}
+
+function buildCheckInEmbed(match) {
+  const checked = Object.keys(match.checkIns || {});
+  const missing = (match.queue || []).filter(id => !match.checkIns?.[id]);
+  const timeLeft = Math.max(0, Math.round(((match.checkInEndsAt || Date.now()) - Date.now()) / 1000));
+  const mins = Math.floor(timeLeft / 60);
+  const secs = String(timeLeft % 60).padStart(2, '0');
+
+  return new EmbedBuilder()
+    .setTitle(`Match Check-In (${match.type.toUpperCase()})`)
+    .setColor(DARK_BLUE)
+    .addFields(
+      { name: 'Checked In', value: checked.length ? checked.map(id => `<@${id}>`).join('\n') : '*None yet*', inline: true },
+      { name: 'Missing', value: missing.length ? missing.map(id => `<@${id}>`).join('\n') : '*Everyone checked in*', inline: true },
+      { name: 'Time Remaining', value: `**${mins}m ${secs}s**`, inline: true },
+    )
+    .setFooter({ text: `Need ${getMinPlayers(match)} checked-in players to start.` })
+    .setTimestamp();
+}
+
+function makeCheckInRows(matchId) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`checkin_${matchId}`).setLabel('Check In').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`forcestart_${matchId}`).setLabel('Force Start').setStyle(ButtonStyle.Danger),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`cancel_queue_${matchId}`).setLabel('Cancel Match').setStyle(ButtonStyle.Danger),
+    ),
+  ];
 }
 
 // ── Bracket embed + components ────────────────────────────────────────────────
@@ -513,7 +545,7 @@ async function postRegionVote(client, match) {
 }
 
 // ── Start bracket ─────────────────────────────────────────────────────────────
-async function startBracket(client, matchId) {
+async function startCheckIn(client, matchId) {
   const data = db.get();
   const match = data.matches[matchId];
   if (!match || match.status !== 'queuing') return;
@@ -531,6 +563,85 @@ async function startBracket(client, matchId) {
     } catch {}
     delete data.matches[matchId];
     db.set(data);
+    await saveToDiscord(client);
+    return;
+  }
+
+  match.status = 'checking';
+  match.checkIns = {};
+  match.checkInEndsAt = Date.now() + CHECKIN_DURATION_MS;
+  data.matches[matchId] = match;
+  db.set(data);
+  await saveToDiscord(client);
+
+  try {
+    const ch = await client.channels.fetch(match.channelId);
+    const msg = await ch.messages.fetch(match.messageId);
+    await msg.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) });
+  } catch {}
+
+  let reminderCount = 0;
+  const interval = setInterval(async () => {
+    const fresh = db.get();
+    const current = fresh.matches?.[matchId];
+    if (!current || current.status !== 'checking') { clearInterval(interval); return; }
+    reminderCount++;
+    const missing = (current.queue || []).filter(id => !current.checkIns?.[id]);
+    try {
+      const ch = await client.channels.fetch(current.channelId);
+      if (missing.length) {
+        await ch.send({
+          content: `${missing.map(id => `<@${id}>`).join(' ')} please check in for Match #${current.matchNum ?? '?'}.`,
+          allowedMentions: { users: missing },
+        });
+      }
+      const msg = await ch.messages.fetch(current.messageId);
+      await msg.edit({ embeds: [buildCheckInEmbed(current)], components: makeCheckInRows(matchId) });
+    } catch {}
+    if (reminderCount >= 5) {
+      clearInterval(interval);
+      await startBracket(client, matchId);
+    }
+  }, 60 * 1000);
+
+  const timer = setTimeout(async () => {
+    clearInterval(interval);
+    await startBracket(client, matchId);
+  }, CHECKIN_DURATION_MS);
+
+  timers.set(matchId, { ...(timers.get(matchId) || {}), checkinTimer: timer, checkinInterval: interval });
+}
+
+async function startBracket(client, matchId) {
+  const data = db.get();
+  const match = data.matches[matchId];
+  if (!match) return;
+  if (match.status === 'queuing') return startCheckIn(client, matchId);
+  if (match.status !== 'checking') return;
+
+  const minPlayers = getMinPlayers(match);
+  match.queue = (match.queue || []).filter(id => match.checkIns?.[id]);
+  if (match.queue.length < minPlayers) {
+    try {
+      const ch = await client.channels.fetch(match.channelId);
+      const msg = await ch.messages.fetch(match.messageId);
+      await msg.edit({
+        embeds: [new EmbedBuilder().setTitle('Match Cancelled').setColor(0xff0000)
+          .setDescription(`Check-in failed: not enough players checked in.\n\nNeed **${minPlayers}**, but only **${match.queue.length}** checked in.`)],
+        components: [],
+      });
+    } catch {}
+    const t = timers.get(matchId);
+    if (t) {
+      clearTimeout(t.timer);
+      clearInterval(t.interval);
+      clearTimeout(t.checkinTimer);
+      clearInterval(t.checkinInterval);
+      timers.delete(matchId);
+    }
+    delete data.matches[matchId];
+    db.set(data);
+    await saveToDiscord(client);
     return;
   }
 
@@ -556,6 +667,7 @@ async function startBracket(client, matchId) {
 
   data.matches[matchId] = match;
   db.set(data);
+  await saveToDiscord(client);
 
   const privateChannel = await createMatchChannel(client, match);
   if (!privateChannel) return;
@@ -563,6 +675,7 @@ async function startBracket(client, matchId) {
   match.privateChannelId = privateChannel.id;
   data.matches[matchId] = match;
   db.set(data);
+  await saveToDiscord(client);
 
   // DM all players with channel link
   for (const playerId of match.queue) {
@@ -707,6 +820,7 @@ module.exports = {
 
   // Exports
   buildBracketTextEmbed, buildBracketComponents, buildQueueEmbed, buildQueueCancelledEmbed,
+  buildCheckInEmbed, makeCheckInRows,
   buildNextRound, fetchDisplayNames, makeBracketAttachment,
   postOrUpdateBracket, startBracket, scheduleChannelDelete,
   timers, canManageMatch, logMatchResult, MATCH_MANAGER_ROLES, DEFAULT_LOG_CHANNEL_ID, MATCH_PING_ROLE_ID,

@@ -28,8 +28,16 @@ function buildPanel(match) {
     )
     .setTimestamp();
 
-  if (match.status === 'queuing') {
+  if (match.status === 'queuing' || match.status === 'checking') {
     embed.addFields({ name: 'Queue', value: (match.queue || []).map(id => `<@${id}>`).join('\n') || 'No players queued.', inline: false });
+    if (match.status === 'checking') {
+      const checked = Object.keys(match.checkIns || {});
+      const missing = (match.queue || []).filter(id => !match.checkIns?.[id]);
+      embed.addFields(
+        { name: 'Checked In', value: checked.length ? checked.map(id => `<@${id}>`).join('\n') : 'None yet.', inline: true },
+        { name: 'Missing Check-In', value: missing.length ? missing.map(id => `<@${id}>`).join('\n') : 'Everyone checked in.', inline: true },
+      );
+    }
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`addminute_${match.id}`).setLabel('+1 Minute').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`forcestart_${match.id}`).setLabel('Force Start').setStyle(ButtonStyle.Primary),

@@ -256,7 +256,7 @@ client.on('interactionCreate', async interaction => {
   // Load match helpers
   const {
     buildQueueEmbed, buildQueueCancelledEmbed, buildCheckInEmbed, makeCheckInRows, timers, startBracket, canManageMatch, scheduleChannelDelete,
-    buildNextRound, fetchDisplayNames, postOrUpdateBracket, logMatchResult,
+    buildNextRound, fetchDisplayNames, makeBracketAttachment, postOrUpdateBracket, logMatchResult,
     revealPrediction, scheduleMatchReminder, dmUser, postPredictionPoll, DEFAULT_LOG_CHANNEL_ID, getMinPlayers,
   } = require('./commands/creatematch');
   const { checkAchievements } = require('./commands/achievements');
@@ -711,6 +711,7 @@ client.on('interactionCreate', async interaction => {
             const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
             const logCh = await client.channels.fetch(logChannelId).catch(() => null);
             if (logCh) {
+              const bracketAttachment = makeBracketAttachment(match);
               const bracketSummary = match.bracket.map((br, r) =>
                 br.map((bm, i) => {
                   const left = bm.teamLabel1 || bm.p1Tag || `<@${bm.p1}>`;
@@ -719,19 +720,21 @@ client.on('interactionCreate', async interaction => {
                   return `R${r + 1} M${i + 1}: ${left} vs ${right} -> <@${bm.winner}>${reason}`;
                 }).join('\n')
               ).join('\n');
+              const logEmbed = new EmbedBuilder()
+                .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
+                .setColor(0xffd700)
+                .setDescription(`Champion: <@${champion}>`)
+                .setImage('attachment://bracket.png')
+                .addFields(
+                  { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
+                  { name: 'Bracket Results', value: bracketSummary.slice(0, 1024), inline: false },
+                )
+                .setTimestamp();
+
               await logCh.send({
                 content: match.queue.map(id => `<@${id}>`).join(' '),
-                embeds: [
-                  new EmbedBuilder()
-                    .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
-                    .setColor(0xffd700)
-                    .setDescription(`Champion: <@${champion}>`)
-                    .addFields(
-                      { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
-                      { name: 'Bracket', value: bracketSummary.slice(0, 1024), inline: false },
-                    )
-                    .setTimestamp(),
-                ],
+                embeds: [logEmbed],
+                files: [bracketAttachment],
                 allowedMentions: { parse: ['users'] },
               });
             }

@@ -372,8 +372,10 @@ client.on('interactionCreate', async interaction => {
     match.checkIns[interaction.user.id] = Date.now();
     data.matches[matchId] = match;
     db.set(data);
+    await interaction.deferUpdate();
+    await interaction.message.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) }).catch(() => {});
     await saveToDiscord(client);
-    return interaction.update({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) });
+    return;
   }
 
   if (customId.startsWith('leave_queue_')) {

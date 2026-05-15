@@ -49,11 +49,19 @@ module.exports = {
     ], interaction.user.id);
 
     try {
-      const channel = await interaction.client.channels.fetch(match.channelId);
-      const message = await channel.messages.fetch(match.messageId);
       if (match.status === 'checking') {
+        const channel = await interaction.client.channels.fetch(match.privateChannelId || match.channelId);
+        await channel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
+        await channel.permissionOverwrites.edit(newPlayer.id, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+        }).catch(() => {});
+        const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
         await message.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
       } else {
+        const channel = await interaction.client.channels.fetch(match.channelId);
+        const message = await channel.messages.fetch(match.messageId);
         await message.edit({ embeds: [buildQueueEmbed(match)] });
       }
     } catch (error) {

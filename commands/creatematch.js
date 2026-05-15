@@ -597,18 +597,62 @@ async function startCheckIn(client, matchId) {
     return;
   }
 
+  const privateChannel = await createMatchChannel(client, match);
+  if (!privateChannel) {
+    try {
+      const ch = await client.channels.fetch(match.channelId);
+      const msg = await ch.messages.fetch(match.messageId);
+      await msg.edit({
+        embeds: [new EmbedBuilder().setTitle('Match Error').setColor(0xff0000)
+          .setDescription('Could not create the match channel. Check the bot channel permissions and category permissions.')],
+        components: [],
+      });
+    } catch {}
+    delete data.matches[matchId];
+    db.set(data);
+    await saveToDiscord(client);
+    return;
+  }
+
   match.status = 'checking';
   match.checkIns = {};
   match.checkInEndsAt = Date.now() + CHECKIN_DURATION_MS;
-  data.matches[matchId] = match;
-  db.set(data);
-  await saveToDiscord(client);
+  match.privateChannelId = privateChannel.id;
 
   try {
     const ch = await client.channels.fetch(match.channelId);
     const msg = await ch.messages.fetch(match.messageId);
-    await msg.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) });
+    await msg.edit({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('Match Check-In Started')
+          .setColor(DARK_BLUE)
+          .setDescription(`Check in here: <#${privateChannel.id}>`)
+          .setTimestamp(),
+      ],
+      components: [],
+    });
   } catch {}
+
+  try {
+    const checkInMessage = await privateChannel.send({
+      content: match.queue.map(id => `<@${id}>`).join(' '),
+      embeds: [buildCheckInEmbed(match)],
+      components: makeCheckInRows(matchId),
+      allowedMentions: { users: match.queue },
+    });
+    match.checkInMessageId = checkInMessage.id;
+  } catch {}
+
+  data.matches[matchId] = match;
+  db.set(data);
+  await saveToDiscord(client);
+
+  for (const playerId of match.queue) {
+    await dmUser(client, playerId,
+      `Check-in is open for Match #${match.matchNum ?? '?'} (${match.type.toUpperCase()}). Go to <#${privateChannel.id}> and press **Check In**.`
+    );
+  }
 
   let reminderCount = 0;
   const interval = setInterval(async () => {
@@ -618,14 +662,14 @@ async function startCheckIn(client, matchId) {
     reminderCount++;
     const missing = (current.queue || []).filter(id => !current.checkIns?.[id]);
     try {
-      const ch = await client.channels.fetch(current.channelId);
+      const ch = await client.channels.fetch(current.privateChannelId || current.channelId);
       if (missing.length) {
         await ch.send({
           content: `${missing.map(id => `<@${id}>`).join(' ')} please check in for Match #${current.matchNum ?? '?'}.`,
           allowedMentions: { users: missing },
         });
       }
-      const msg = await ch.messages.fetch(current.messageId);
+      const msg = await ch.messages.fetch(current.checkInMessageId || current.messageId);
       await msg.edit({ embeds: [buildCheckInEmbed(current)], components: makeCheckInRows(matchId) });
     } catch {}
     if (reminderCount >= 5) {
@@ -655,8 +699,8 @@ async function startBracket(client, matchId) {
   match.checkInDqs = missingCheckIns;
   if (match.queue.length < minPlayers) {
     try {
-      const ch = await client.channels.fetch(match.channelId);
-      const msg = await ch.messages.fetch(match.messageId);
+      const ch = await client.channels.fetch(match.privateChannelId || match.channelId);
+      const msg = await ch.messages.fetch(match.checkInMessageId || match.messageId);
       await msg.edit({
         embeds: [new EmbedBuilder().setTitle('Match Cancelled').setColor(0xff0000)
           .setDescription(`Check-in failed: not enough players checked in.\n\nNeed **${minPlayers}**, but only **${match.queue.length}** checked in.\n\nDQ'd for missing check-in:\n${missingCheckIns.map(id => `<@${id}>`).join('\n') || 'None'}`)],
@@ -684,6 +728,13 @@ async function startBracket(client, matchId) {
 
   match.status = 'bracket';
   const eloData = getEloData(data);
+  try {
+    if (match.privateChannelId && match.checkInMessageId) {
+      const ch = await client.channels.fetch(match.privateChannelId);
+      const msg = await ch.messages.fetch(match.checkInMessageId);
+      await msg.edit({ embeds: [buildCheckInEmbed(match)], components: [] });
+    }
+  } catch {}
   if (missingCheckIns.length) {
     await sendStaffAuditLog(client, match.guildId, 'Auto-DQ Missing Check-In', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
@@ -691,7 +742,7 @@ async function startBracket(client, matchId) {
       { name: 'Bracket Players', value: match.queue.map(id => `<@${id}>`).join('\n') || 'None', inline: false },
     ]);
     try {
-      const ch = await client.channels.fetch(match.channelId);
+      const ch = await client.channels.fetch(match.privateChannelId || match.channelId);
       await ch.send({
         content: `Auto-DQ for missing check-in: ${missingCheckIns.map(id => `<@${id}>`).join(' ')}`,
         allowedMentions: { users: missingCheckIns },
@@ -720,7 +771,9 @@ async function startBracket(client, matchId) {
   db.set(data);
   await saveToDiscord(client);
 
-  const privateChannel = await createMatchChannel(client, match);
+  const privateChannel = match.privateChannelId
+    ? await client.channels.fetch(match.privateChannelId).catch(() => null)
+    : await createMatchChannel(client, match);
   if (!privateChannel) return;
 
   match.privateChannelId = privateChannel.id;

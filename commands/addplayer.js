@@ -62,12 +62,19 @@ module.exports = {
     ], interaction.user.id);
 
     try {
-      const channel = await interaction.client.channels.fetch(match.channelId);
-      const message = await channel.messages.fetch(match.messageId);
       const { buildCheckInEmbed, makeCheckInRows } = require('./creatematch');
       if (match.status === 'checking') {
+        const channel = await interaction.client.channels.fetch(match.privateChannelId || match.channelId);
+        await channel.permissionOverwrites.edit(player.id, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+        }).catch(() => {});
+        const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
         await message.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
       } else {
+        const channel = await interaction.client.channels.fetch(match.channelId);
+        const message = await channel.messages.fetch(match.messageId);
         await message.edit({ embeds: [buildQueueEmbed(match)] });
       }
     } catch (error) {

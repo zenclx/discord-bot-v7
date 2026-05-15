@@ -15,6 +15,7 @@ const matchReminderTimers = new Map();
 const MATCH_MANAGER_ROLES = ['1387600871377993820'];
 const MATCH_CATEGORY_ID = '1333182926858223718';
 const REMINDER_AFTER_MS = 15 * 60 * 1000;
+const DEFAULT_LOG_CHANNEL_ID = '1384695119243907132';
 
 function getMinPlayers(match) {
   if (match.testMatch) return match.type === '1v1' ? 2 : 4;
@@ -24,7 +25,10 @@ function getMinPlayers(match) {
 // ── Permission ────────────────────────────────────────────────────────────────
 function canManageMatch(member) {
   if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  return member.roles.cache.some(r => MATCH_MANAGER_ROLES.includes(r.id));
+  const data = db.get();
+  const configured = data.settings?.[member.guild.id]?.matchManagerRoles || [];
+  const allowedRoles = [...new Set([...MATCH_MANAGER_ROLES, ...configured])];
+  return member.roles.cache.some(r => allowedRoles.includes(r.id));
 }
 
 function buildQueueCancelledEmbed(match, reason = 'The host cancelled this queue before the match started.') {
@@ -103,6 +107,26 @@ function buildBracketComponents(match, round) {
           .setStyle(ButtonStyle.Primary),
       );
       rows.push(row);
+
+      const adminRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`noshow|${match.id}|${round}|${i}|${m.p1}`)
+          .setLabel(`${p1Label.slice(0, 18)} no-show`)
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`dq|${match.id}|${round}|${i}|${m.p1}`)
+          .setLabel(`${p1Label.slice(0, 18)} DQ`)
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`noshow|${match.id}|${round}|${i}|${m.p2}`)
+          .setLabel(`${p2Label.slice(0, 18)} no-show`)
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`dq|${match.id}|${round}|${i}|${m.p2}`)
+          .setLabel(`${p2Label.slice(0, 18)} DQ`)
+          .setStyle(ButtonStyle.Danger),
+      );
+      rows.push(adminRow);
     }
   });
   return rows.slice(0, 5);
@@ -261,14 +285,28 @@ async function logMatchResult(client, match, winnerId, loserIds) {
     db.set(data);
 
     const settings = data.settings?.[guildId] || {};
-    if (settings.logChannelId) {
-      const ch = await client.channels.fetch(settings.logChannelId);
+    const logChannelId = settings.logChannelId || DEFAULT_LOG_CHANNEL_ID;
+    if (logChannelId) {
+      const ch = await client.channels.fetch(logChannelId);
       const embed = new EmbedBuilder()
         .setTitle('📋 Match Result').setColor(0x00c853)
         .addFields(
           { name: '🏆 Winner', value: `<@${winnerId}>`, inline: true },
           { name: '🎮 Type', value: match.type.toUpperCase(), inline: true },
         ).setTimestamp();
+      embed.addFields({ name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true });
+      if (match.bracket) {
+        const bracketLines = match.bracket.map((round, roundIndex) => {
+          return round.map((m, i) => {
+            const left = m.teamLabel1 || m.p1Tag || `<@${m.p1}>`;
+            const right = m.teamLabel2 || m.p2Tag || (m.p2 ? `<@${m.p2}>` : 'BYE');
+            const winner = m.winner ? `<@${m.winner}>` : 'Pending';
+            const reason = m.resultReason ? ` (${m.resultReason})` : '';
+            return `R${roundIndex + 1} M${i + 1}: ${left} vs ${right} -> ${winner}${reason}`;
+          }).join('\n');
+        }).join('\n');
+        embed.addFields({ name: 'Bracket', value: bracketLines.slice(0, 1024) || 'No bracket data', inline: false });
+      }
       if (match.prize) embed.addFields({ name: '🎁 Prize', value: match.prize });
       const playerPing = match.queue.map(id => `<@${id}>`).join(' ');
 
@@ -606,23 +644,22 @@ module.exports = {
     .setDescription('Create a match queue')
     .addStringOption(o => o.setName('type').setDescription('Match type').setRequired(true)
       .addChoices({ name: '1v1', value: '1v1' }, { name: '2v2', value: '2v2' }))
-    .addStringOption(o => o.setName('scoreboard').setDescription('Scoreboard to credit wins to').setRequired(false).setAutocomplete(true))
     .addStringOption(o => o.setName('prize').setDescription('Prize for the winner').setRequired(false))
     .addBooleanOption(o => o.setName('test_match').setDescription('Lower the player minimum so staff can test brackets').setRequired(false)),
 
   async autocomplete(interaction) {
-    const data = db.get();
-    const boards = Object.values(data.scoreboards || {}).filter(s => s.guildId === interaction.guildId);
-    const focused = interaction.options.getFocused().toLowerCase();
-    await interaction.respond(boards.filter(s => s.name.toLowerCase().includes(focused)).slice(0, 25).map(s => ({ name: s.name, value: s.name })));
+    await interaction.respond([]);
   },
 
   async execute(interaction, helpers = {}) {
     if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ You do not have permission to create matches.', flags: 64 });
+    const existingData = db.get();
+    if (!existingData.eloLeaderboards?.[interaction.guildId]) {
+      return interaction.reply({ content: 'Create the ELO leaderboard first with `/eloleaderboard`, then create a match.', flags: 64 });
+    }
     await interaction.deferReply();
 
     const type = interaction.options.getString('type');
-    const sbName = interaction.options.getString('scoreboard');
     const prize = interaction.options.getString('prize') || null;
     const testMatch = interaction.options.getBoolean('test_match') || false;
     const matchNum = helpers?.getNextMatchNumber?.(interaction.guildId) ?? 0;
@@ -631,7 +668,7 @@ module.exports = {
 
     const match = {
       id: matchId, guildId: interaction.guildId, channelId: interaction.channelId,
-      type, scoreboardName: sbName || null, prize, queue: [], status: 'queuing',
+      type, scoreboardName: null, prize, queue: [], status: 'queuing',
       endsAt, bracket: [], currentRound: 0, messageId: null,
       privateChannelId: null, bracketMessageId: null, hostId: interaction.user.id,
       matchNum, teams: null, bo3Mode: 'none', region: null, testMatch,
@@ -686,7 +723,7 @@ module.exports = {
   buildBracketTextEmbed, buildBracketComponents, buildQueueEmbed, buildQueueCancelledEmbed,
   buildNextRound, fetchDisplayNames, makeBracketAttachment,
   postOrUpdateBracket, startBracket, scheduleChannelDelete,
-  timers, canManageMatch, logMatchResult, MATCH_MANAGER_ROLES,
+  timers, canManageMatch, logMatchResult, MATCH_MANAGER_ROLES, DEFAULT_LOG_CHANNEL_ID,
   postPredictionPoll, revealPrediction, scheduleMatchReminder,
   matchReminderTimers, dmUser, getMinPlayers,
 };

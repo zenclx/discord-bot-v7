@@ -39,7 +39,7 @@ function getEloData(data) {
 
 function getPlayerElo(eloData, userId) {
   if (!eloData[userId]) {
-    eloData[userId] = { elo: STARTING_ELO, wins: 0, losses: 0, matchHistory: [] };
+    eloData[userId] = { elo: STARTING_ELO, wins: 0, losses: 0, currentStreak: 0, bestStreak: 0, matchHistory: [] };
   }
   return eloData[userId];
 }
@@ -74,8 +74,10 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
     const winResult = applyEloChange(eloData, winnerId, gainAmount);
     const winner = getPlayerElo(eloData, winnerId);
     winner.wins = (winner.wins || 0) + 1;
+    winner.currentStreak = Math.max(0, winner.currentStreak || 0) + 1;
+    winner.bestStreak = Math.max(winner.bestStreak || 0, winner.currentStreak);
     winner.matchHistory = [
-      { matchId: match.id, type: 'win', delta: gainAmount, elo: winResult.newElo, round: roundIndex, ts: Date.now() },
+      { matchId: match.id, matchNum: match.matchNum ?? null, type: 'win', delta: gainAmount, elo: winResult.newElo, round: roundIndex, opponent: loserId || null, ts: Date.now() },
       ...(winner.matchHistory || []),
     ].slice(0, 50);
 
@@ -84,8 +86,10 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
       lossResult = applyEloChange(eloData, loserId, -LOSS_PENALTY);
       const loser = getPlayerElo(eloData, loserId);
       loser.losses = (loser.losses || 0) + 1;
+      loser.currentStreak = 0;
+      loser.bestStreak = Math.max(loser.bestStreak || 0, loser.currentStreak || 0);
       loser.matchHistory = [
-        { matchId: match.id, type: 'loss', delta: -LOSS_PENALTY, elo: lossResult.newElo, round: roundIndex, ts: Date.now() },
+        { matchId: match.id, matchNum: match.matchNum ?? null, type: 'loss', delta: -LOSS_PENALTY, elo: lossResult.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
         ...(loser.matchHistory || []),
       ].slice(0, 50);
     }
@@ -157,6 +161,7 @@ function buildEloProfileEmbed(target, player, displayName) {
       `Rank: **${currentRank}**`,
       `ELO: **${formatNumber(player.elo)}**`,
       `Record: **${player.wins || 0}W / ${player.losses || 0}L**`,
+      `Streak: **${player.currentStreak || 0}** current / **${player.bestStreak || 0}** best`,
       '',
       remainingLine,
     ].join('\n'))
@@ -279,7 +284,7 @@ const eloResetPlayerCommand = {
     const target = interaction.options.getUser('user');
     const data = db.get();
     const eloData = getEloData(data);
-    eloData[target.id] = { elo: STARTING_ELO, wins: 0, losses: 0, matchHistory: [] };
+    eloData[target.id] = { elo: STARTING_ELO, wins: 0, losses: 0, currentStreak: 0, bestStreak: 0, matchHistory: [] };
     db.set(data);
     await updateEloLeaderboard(interaction.client, interaction.guildId);
     try {

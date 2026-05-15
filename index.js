@@ -213,7 +213,7 @@ client.on('interactionCreate', async interaction => {
   const {
     buildQueueEmbed, buildQueueCancelledEmbed, timers, startBracket, canManageMatch, scheduleChannelDelete,
     buildNextRound, fetchDisplayNames, postOrUpdateBracket, logMatchResult,
-    revealPrediction, scheduleMatchReminder, dmUser, postPredictionPoll,
+    revealPrediction, scheduleMatchReminder, dmUser, postPredictionPoll, DEFAULT_LOG_CHANNEL_ID,
   } = require('./commands/creatematch');
   const { checkAchievements } = require('./commands/achievements');
   const { applyMatchElo, buildMatchEloSummary, getEloData } = require('./commands/elo');
@@ -392,7 +392,36 @@ client.on('interactionCreate', async interaction => {
 
   // ── Winner selection ──────────────────────────────────────────────────────
   // Format: win|matchId|round|matchIndex|winnerId  (pipe-separated, no ambiguity)
-  if (customId.startsWith('win|')) {
+  if (customId.startsWith('resend_bracket_')) {
+    const matchId = customId.replace('resend_bracket_', '');
+    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+    const data = db.get();
+    const match = data.matches?.[matchId];
+    if (!match || !match.bracket?.length) return interaction.reply({ content: 'No active bracket found.', flags: 64 });
+    match.bracketMessageId = null;
+    data.matches[matchId] = match;
+    db.set(data);
+    await postOrUpdateBracket(client, match);
+    return interaction.reply({ content: 'Bracket resent.', flags: 64 });
+  }
+
+  if (customId.startsWith('cancel_match_')) {
+    const matchId = customId.replace('cancel_match_', '');
+    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+    const data = db.get();
+    const match = data.matches?.[matchId];
+    if (!match) return interaction.reply({ content: 'Match not found.', flags: 64 });
+    match.status = 'cancelled';
+    data.matches[matchId] = match;
+    db.set(data);
+    if (match.privateChannelId) {
+      const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
+      if (ch) await ch.send('Match cancelled by staff.').catch(() => {});
+    }
+    return interaction.reply({ content: 'Match cancelled.', flags: 64 });
+  }
+
+  if (customId.startsWith('win|') || customId.startsWith('dq|') || customId.startsWith('noshow|')) {
     if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ Staff only.', flags: 64 });
 
     const parts = customId.split('|');
@@ -401,7 +430,7 @@ client.on('interactionCreate', async interaction => {
 
     await interaction.deferReply({ flags: 64 });
 
-    const [, matchId, roundStr, matchIndexStr, winnerId] = parts;
+    const [action, matchId, roundStr, matchIndexStr, selectedUserId] = parts;
     const round = parseInt(roundStr);
     const matchIndex = parseInt(matchIndexStr);
 
@@ -416,8 +445,14 @@ client.on('interactionCreate', async interaction => {
     if (!bracketMatch) return interaction.editReply({ content: 'Match slot not found.' });
     if (bracketMatch.winner) return interaction.editReply({ content: 'Winner already selected for that match.' });
 
+    const winnerId = action === 'win'
+      ? selectedUserId
+      : (bracketMatch.p1 === selectedUserId ? bracketMatch.p2 : bracketMatch.p1);
+    if (!winnerId) return interaction.editReply({ content: 'Could not determine a winner for that match.' });
     const loserId = bracketMatch.p1 === winnerId ? bracketMatch.p2 : bracketMatch.p1;
     bracketMatch.winner = winnerId;
+    if (action === 'dq') bracketMatch.resultReason = `<@${selectedUserId}> DQ`;
+    if (action === 'noshow') bracketMatch.resultReason = `<@${selectedUserId}> no-show`;
 
     // Reveal prediction
     const predId = `pred|${matchId}|${round}|${matchIndex}`;
@@ -495,6 +530,33 @@ client.on('interactionCreate', async interaction => {
               .addFields({ name: 'Match ELO Changes', value: eloSummary.slice(0, 1024), inline: false })
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
+            const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
+            const logCh = await client.channels.fetch(logChannelId).catch(() => null);
+            if (logCh) {
+              const bracketSummary = match.bracket.map((br, r) =>
+                br.map((bm, i) => {
+                  const left = bm.teamLabel1 || bm.p1Tag || `<@${bm.p1}>`;
+                  const right = bm.teamLabel2 || bm.p2Tag || (bm.p2 ? `<@${bm.p2}>` : 'BYE');
+                  const reason = bm.resultReason ? ` (${bm.resultReason})` : '';
+                  return `R${r + 1} M${i + 1}: ${left} vs ${right} -> <@${bm.winner}>${reason}`;
+                }).join('\n')
+              ).join('\n');
+              await logCh.send({
+                content: match.queue.map(id => `<@${id}>`).join(' '),
+                embeds: [
+                  new EmbedBuilder()
+                    .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
+                    .setColor(0xffd700)
+                    .setDescription(`Champion: <@${champion}>`)
+                    .addFields(
+                      { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
+                      { name: 'Bracket', value: bracketSummary.slice(0, 1024), inline: false },
+                    )
+                    .setTimestamp(),
+                ],
+                allowedMentions: { parse: ['users'] },
+              });
+            }
           } catch {}
           scheduleChannelDelete(client, match.privateChannelId);
         }

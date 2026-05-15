@@ -51,6 +51,7 @@ client.commands = new Collection();
 const localCommands = loadCommands();
 const commandsData = localCommands.map(command => command.data.toJSON());
 for (const command of localCommands) client.commands.set(command.data.name, command);
+console.log(`Loaded slash commands: ${localCommands.map(command => command.data.name).join(', ')}`);
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
@@ -462,8 +463,6 @@ client.on('interactionCreate', async interaction => {
       }
     } catch {}
 
-    // Log match result
-    await logMatchResult(client, match, winnerId, loserId ? [loserId] : []);
     if (match.privateChannelId) {
       try {
         const ch = await client.channels.fetch(match.privateChannelId);

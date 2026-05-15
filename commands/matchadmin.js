@@ -82,6 +82,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('matchadmin')
     .setDescription('Open the admin panel for the current match')
+    .setDMPermission(false)
     .addStringOption(o =>
       o.setName('matchid')
         .setDescription('Optional match ID')

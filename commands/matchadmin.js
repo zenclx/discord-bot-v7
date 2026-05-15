@@ -11,6 +11,11 @@ function findActiveMatch(data, guildId, channelId, matchId) {
   return matches[0] || null;
 }
 
+function getPlayerLabel(bracketMatch, side) {
+  if (side === 'p1') return bracketMatch.teamLabel1 || bracketMatch.p1Tag || 'Left side';
+  return bracketMatch.teamLabel2 || bracketMatch.p2Tag || 'Right side';
+}
+
 function buildPanel(match) {
   const embed = new EmbedBuilder()
     .setTitle(`Match Admin - #${match.matchNum ?? '?'}`)
@@ -54,8 +59,8 @@ function buildPanel(match) {
     .filter(({ bracketMatch }) => !bracketMatch.winner && !bracketMatch.bye)
     .slice(0, 25)
     .map(({ bracketMatch, matchIndex }) => {
-      const p1Label = bracketMatch.teamLabel1 || bracketMatch.p1Tag || 'Player 1';
-      const p2Label = bracketMatch.teamLabel2 || bracketMatch.p2Tag || 'Player 2';
+      const p1Label = getPlayerLabel(bracketMatch, 'p1');
+      const p2Label = getPlayerLabel(bracketMatch, 'p2');
       return {
         label: `M${matchIndex + 1}: ${p1Label} vs ${p2Label}`.slice(0, 100),
         description: `Round ${match.currentRound + 1}`.slice(0, 100),
@@ -77,10 +82,10 @@ function buildPanel(match) {
           .setCustomId(`admin_select_action_${match.id}`)
           .setPlaceholder('Choose admin action')
           .addOptions(
-            { label: 'No-show Player 1', value: 'noshow_p1' },
-            { label: 'No-show Player 2', value: 'noshow_p2' },
-            { label: 'DQ Player 1', value: 'dq_p1' },
-            { label: 'DQ Player 2', value: 'dq_p2' },
+            { label: 'No-show left side', value: 'noshow_p1' },
+            { label: 'No-show right side', value: 'noshow_p2' },
+            { label: 'DQ left side', value: 'dq_p1' },
+            { label: 'DQ right side', value: 'dq_p2' },
           )
       ),
       new ActionRowBuilder().addComponents(

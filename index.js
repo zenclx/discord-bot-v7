@@ -179,12 +179,38 @@ client.on('interactionCreate', async interaction => {
 
     if (customId.startsWith('admin_select_match_')) {
       current.matchSlot = interaction.values[0];
+      const data = db.get();
+      const match = data.matches?.[matchId];
+      const [roundStr, matchIndexStr] = current.matchSlot.split('|');
+      const bracketMatch = match?.bracket?.[Number(roundStr)]?.[Number(matchIndexStr)];
+      if (bracketMatch) {
+        const { ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+        const p1Label = bracketMatch.teamLabel1 || bracketMatch.p1Tag || 'Left side';
+        const p2Label = bracketMatch.teamLabel2 || bracketMatch.p2Tag || 'Right side';
+        const newComponents = interaction.message.components.map(row => {
+          const first = row.components?.[0];
+          if (first?.customId !== `admin_select_action_${matchId}`) return row;
+          return new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId(`admin_select_action_${matchId}`)
+              .setPlaceholder('Choose admin action')
+              .addOptions(
+                { label: `No-show ${p1Label}`.slice(0, 100), value: 'noshow_p1' },
+                { label: `No-show ${p2Label}`.slice(0, 100), value: 'noshow_p2' },
+                { label: `DQ ${p1Label}`.slice(0, 100), value: 'dq_p1' },
+                { label: `DQ ${p2Label}`.slice(0, 100), value: 'dq_p2' },
+              )
+          );
+        });
+        global._matchAdminSelections.set(key, current);
+        return interaction.update({ components: newComponents });
+      }
     } else {
       current.action = interaction.values[0];
     }
 
     global._matchAdminSelections.set(key, current);
-    return interaction.reply({ content: 'Selection saved.', flags: 64 });
+    return interaction.deferUpdate();
   }
 
   if (!interaction.isButton()) return;
@@ -474,6 +500,7 @@ client.on('interactionCreate', async interaction => {
 
     global._matchAdminSelections.delete(key);
     customId = `${action}|${matchId}|${roundStr}|${matchIndexStr}|${selectedUserId}`;
+    await interaction.deferReply({ flags: 64 });
   }
 
   if (customId.startsWith('win|') || customId.startsWith('dq|') || customId.startsWith('noshow|')) {
@@ -483,7 +510,7 @@ client.on('interactionCreate', async interaction => {
     // parts: ['win', matchId, round, matchIndex, winnerId]
     if (parts.length !== 5) return interaction.reply({ content: '❌ Malformed button ID.', flags: 64 });
 
-    await interaction.deferReply({ flags: 64 });
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: 64 });
 
     const [action, matchId, roundStr, matchIndexStr, selectedUserId] = parts;
     const round = parseInt(roundStr);

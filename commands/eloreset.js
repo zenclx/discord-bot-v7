@@ -12,7 +12,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('eloreset')
     .setDescription('Reset ELO data')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(sub =>
       sub
         .setName('all')

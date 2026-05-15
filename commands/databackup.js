@@ -19,7 +19,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('databackup')
     .setDescription('Manage the Discord backup used to survive Render redeploys')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(sub =>
       sub.setName('status').setDescription('Show what the bot currently has loaded')
     )

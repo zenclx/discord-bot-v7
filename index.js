@@ -80,10 +80,22 @@ for (const file of commandFiles) {
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
   try {
-    console.log('Registering slash commands...');
+    console.log(`Registering ${commandsData.length} guild slash commands...`);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commandsData });
-    console.log('✅ Commands registered!');
-  } catch (e) { console.error('Failed to register commands:', e); }
+    console.log('Commands registered for this guild.');
+  } catch (e) {
+    if (e.code === 50001) {
+      console.error(`Guild command registration failed with Missing Access for guild ${GUILD_ID}. Falling back to global commands.`);
+      try {
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commandsData });
+        console.log('Commands registered globally. They can take up to 1 hour to appear.');
+      } catch (globalError) {
+        console.error('Global command registration failed:', globalError);
+      }
+      return;
+    }
+    console.error('Failed to register commands:', e);
+  }
 }
 
 function restoreScheduledMatches() {

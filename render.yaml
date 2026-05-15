@@ -2,7 +2,7 @@ services:
   - type: web
     name: discord-scoreboard-bot
     runtime: node
-    buildCommand: npm install && node deploy-commands.js
+    buildCommand: npm install
     startCommand: npm start
     envVars:
       - key: DISCORD_TOKEN

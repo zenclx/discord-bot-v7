@@ -36,11 +36,22 @@ const rest = new REST({ version: '10' }).setToken(token);
 
 (async () => {
   try {
-    console.log(`Registering ${commands.length} slash commands...`);
+    console.log(`Registering ${commands.length} guild slash commands...`);
     await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-    console.log('Slash commands registered successfully.');
+    console.log('Slash commands registered for this guild.');
   } catch (err) {
-    console.error('Failed to register commands:', err);
+    if (err.code === 50001) {
+      console.error(`Guild command registration failed with Missing Access for guild ${guildId}. Falling back to global commands.`);
+      try {
+        await rest.put(Routes.applicationCommands(clientId), { body: commands });
+        console.log('Slash commands registered globally. They can take up to 1 hour to appear.');
+        return;
+      } catch (globalErr) {
+        console.error('Global command registration failed:', globalErr);
+      }
+    } else {
+      console.error('Failed to register commands:', err);
+    }
     process.exit(1);
   }
 })();

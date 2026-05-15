@@ -11,6 +11,8 @@ services:
         sync: false
       - key: GUILD_ID
         sync: false
+      - key: DATA_BACKUP_CHANNEL_ID
+        value: 1504643789069881345
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION

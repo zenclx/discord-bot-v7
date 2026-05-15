@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
 const db = require('../database');
 const { canManageMatch } = require('./creatematch');
 
@@ -49,34 +49,50 @@ function buildPanel(match) {
     new ButtonBuilder().setCustomId(`cancel_match_${match.id}`).setLabel('Cancel Match').setStyle(ButtonStyle.Danger),
   );
 
-  const actionRows = currentRound
+  const pendingOptions = currentRound
     .map((bracketMatch, matchIndex) => ({ bracketMatch, matchIndex }))
     .filter(({ bracketMatch }) => !bracketMatch.winner && !bracketMatch.bye)
-    .slice(0, 4)
+    .slice(0, 25)
     .map(({ bracketMatch, matchIndex }) => {
       const p1Label = bracketMatch.teamLabel1 || bracketMatch.p1Tag || 'Player 1';
       const p2Label = bracketMatch.teamLabel2 || bracketMatch.p2Tag || 'Player 2';
-      return new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`noshow|${match.id}|${match.currentRound}|${matchIndex}|${bracketMatch.p1}`)
-          .setLabel(`M${matchIndex + 1}: ${p1Label.slice(0, 14)} no-show`)
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId(`dq|${match.id}|${match.currentRound}|${matchIndex}|${bracketMatch.p1}`)
-          .setLabel(`DQ ${p1Label.slice(0, 16)}`)
-          .setStyle(ButtonStyle.Danger),
-        new ButtonBuilder()
-          .setCustomId(`noshow|${match.id}|${match.currentRound}|${matchIndex}|${bracketMatch.p2}`)
-          .setLabel(`M${matchIndex + 1}: ${p2Label.slice(0, 14)} no-show`)
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId(`dq|${match.id}|${match.currentRound}|${matchIndex}|${bracketMatch.p2}`)
-          .setLabel(`DQ ${p2Label.slice(0, 16)}`)
-          .setStyle(ButtonStyle.Danger),
-      );
+      return {
+        label: `M${matchIndex + 1}: ${p1Label} vs ${p2Label}`.slice(0, 100),
+        description: `Round ${match.currentRound + 1}`.slice(0, 100),
+        value: `${match.currentRound}|${matchIndex}`,
+      };
     });
 
-  return { embeds: [embed], components: [...actionRows, row] };
+  const components = [];
+  if (pendingOptions.length) {
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`admin_select_match_${match.id}`)
+          .setPlaceholder('Choose pending bracket match')
+          .addOptions(pendingOptions)
+      ),
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`admin_select_action_${match.id}`)
+          .setPlaceholder('Choose admin action')
+          .addOptions(
+            { label: 'No-show Player 1', value: 'noshow_p1' },
+            { label: 'No-show Player 2', value: 'noshow_p2' },
+            { label: 'DQ Player 1', value: 'dq_p1' },
+            { label: 'DQ Player 2', value: 'dq_p2' },
+          )
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`admin_apply_${match.id}`)
+          .setLabel('Apply Selected Action')
+          .setStyle(ButtonStyle.Danger)
+      )
+    );
+  }
+
+  return { embeds: [embed], components: [...components, row] };
 }
 
 module.exports = {

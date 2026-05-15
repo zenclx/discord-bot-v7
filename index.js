@@ -166,8 +166,28 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
+  let customId = interaction.customId;
+
+  if (interaction.isStringSelectMenu()) {
+    if (!customId.startsWith('admin_select_')) return;
+    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+
+    const matchId = customId.replace(/^admin_select_(match|action)_/, '');
+    const key = `${interaction.user.id}:${matchId}`;
+    if (!global._matchAdminSelections) global._matchAdminSelections = new Map();
+    const current = global._matchAdminSelections.get(key) || {};
+
+    if (customId.startsWith('admin_select_match_')) {
+      current.matchSlot = interaction.values[0];
+    } else {
+      current.action = interaction.values[0];
+    }
+
+    global._matchAdminSelections.set(key, current);
+    return interaction.reply({ content: 'Selection saved.', flags: 64 });
+  }
+
   if (!interaction.isButton()) return;
-  const { customId } = interaction;
   try {
 
   // ── Scoreboard: reset ─────────────────────────────────────────────────────
@@ -428,6 +448,32 @@ client.on('interactionCreate', async interaction => {
     const { updateEloLeaderboard } = require('./commands/elo');
     await updateEloLeaderboard(client, snapshot.match.guildId);
     return interaction.reply({ content: `Undid last result: ${snapshot.label}.`, flags: 64 });
+  }
+
+  if (customId.startsWith('admin_apply_')) {
+    const matchId = customId.replace('admin_apply_', '');
+    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+    const key = `${interaction.user.id}:${matchId}`;
+    const selection = global._matchAdminSelections?.get(key);
+    if (!selection?.matchSlot || !selection?.action) {
+      return interaction.reply({ content: 'Choose a pending match and an action first.', flags: 64 });
+    }
+
+    const data = db.get();
+    const match = data.matches?.[matchId];
+    if (!match) return interaction.reply({ content: 'Match not found.', flags: 64 });
+    const [roundStr, matchIndexStr] = selection.matchSlot.split('|');
+    const bracketMatch = match.bracket?.[Number(roundStr)]?.[Number(matchIndexStr)];
+    if (!bracketMatch || bracketMatch.winner || bracketMatch.bye) {
+      return interaction.reply({ content: 'That bracket match is no longer pending.', flags: 64 });
+    }
+
+    const [action, side] = selection.action.split('_');
+    const selectedUserId = side === 'p1' ? bracketMatch.p1 : bracketMatch.p2;
+    if (!selectedUserId) return interaction.reply({ content: 'Could not find that player slot.', flags: 64 });
+
+    global._matchAdminSelections.delete(key);
+    customId = `${action}|${matchId}|${roundStr}|${matchIndexStr}|${selectedUserId}`;
   }
 
   if (customId.startsWith('win|') || customId.startsWith('dq|') || customId.startsWith('noshow|')) {

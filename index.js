@@ -51,22 +51,29 @@ client.commands = new Collection();
 
 const commandFiles = fs.readdirSync(path.join(__dirname, 'commands')).filter(f => f.endsWith('.js'));
 const commandsData = [];
+const registeredCommandNames = new Set();
+
+function registerLocalCommand(command) {
+  if (!command?.data || !command?.execute) return;
+  const name = command.data.name;
+  if (registeredCommandNames.has(name)) return;
+  registeredCommandNames.add(name);
+  client.commands.set(name, command);
+  commandsData.push(command.data.toJSON());
+}
+
 for (const file of commandFiles) {
   const imported = require(`./commands/${file}`);
 
   // Single command export
   if (imported.data && imported.execute) {
-    client.commands.set(imported.data.name, imported);
-    commandsData.push(imported.data.toJSON());
+    registerLocalCommand(imported);
     continue;
   }
 
   // Multiple command exports
   for (const value of Object.values(imported)) {
-    if (value?.data && value?.execute) {
-      client.commands.set(value.data.name, value);
-      commandsData.push(value.data.toJSON());
-    }
+    registerLocalCommand(value);
   }
 }
 

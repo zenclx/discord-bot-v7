@@ -76,6 +76,7 @@ async function restoreFromDiscord(client) {
 
     const message = await findBackupMessage(channel, client);
     if (!message) {
+      restoring = false;
       await saveToDiscord(client);
       return false;
     }
@@ -95,10 +96,10 @@ async function restoreFromDiscord(client) {
 }
 
 async function saveToDiscord(client) {
-  if (restoring) return;
+  if (restoring) return false;
 
   const channel = await getBackupChannel(client);
-  if (!channel) return;
+  if (!channel) return false;
 
   const data = db.get();
   const attachment = new AttachmentBuilder(
@@ -115,7 +116,8 @@ async function saveToDiscord(client) {
     const updated = await existing.edit(payload).catch(() => null);
     if (updated) {
       backupMessageId = updated.id;
-      return;
+      console.log('Saved bot data to Discord backup.');
+      return true;
     }
   }
 
@@ -123,7 +125,12 @@ async function saveToDiscord(client) {
     console.error('Discord backup save failed:', error.message);
     return null;
   });
-  if (created) backupMessageId = created.id;
+  if (created) {
+    backupMessageId = created.id;
+    console.log('Saved bot data to Discord backup.');
+    return true;
+  }
+  return false;
 }
 
 function scheduleDiscordBackup(client) {

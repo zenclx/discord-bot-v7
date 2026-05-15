@@ -74,8 +74,6 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
     const winResult = applyEloChange(eloData, winnerId, gainAmount);
     const winner = getPlayerElo(eloData, winnerId);
     winner.wins = (winner.wins || 0) + 1;
-    winner.currentStreak = Math.max(0, winner.currentStreak || 0) + 1;
-    winner.bestStreak = Math.max(winner.bestStreak || 0, winner.currentStreak);
     winner.matchHistory = [
       { matchId: match.id, matchNum: match.matchNum ?? null, type: 'win', delta: gainAmount, elo: winResult.newElo, round: roundIndex, opponent: loserId || null, ts: Date.now() },
       ...(winner.matchHistory || []),
@@ -86,8 +84,6 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
       lossResult = applyEloChange(eloData, loserId, -LOSS_PENALTY);
       const loser = getPlayerElo(eloData, loserId);
       loser.losses = (loser.losses || 0) + 1;
-      loser.currentStreak = 0;
-      loser.bestStreak = Math.max(loser.bestStreak || 0, loser.currentStreak || 0);
       loser.matchHistory = [
         { matchId: match.id, matchNum: match.matchNum ?? null, type: 'loss', delta: -LOSS_PENALTY, elo: lossResult.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
         ...(loser.matchHistory || []),
@@ -104,6 +100,30 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
     } catch {}
   } catch (e) {
     console.error('applyMatchElo error:', e.message);
+  }
+}
+
+async function applyMatchStreaks(client, match, championId) {
+  try {
+    const data = db.get();
+    const eloData = getEloData(data);
+    const players = [...new Set(match.queue || [])];
+
+    for (const playerId of players) {
+      const player = getPlayerElo(eloData, playerId);
+      if (playerId === championId) {
+        player.currentStreak = Math.max(0, player.currentStreak || 0) + 1;
+        player.bestStreak = Math.max(player.bestStreak || 0, player.currentStreak);
+      } else {
+        player.currentStreak = 0;
+        player.bestStreak = Math.max(player.bestStreak || 0, 0);
+      }
+    }
+
+    db.set(data);
+    await updateEloLeaderboard(client, match.guildId);
+  } catch (e) {
+    console.error('applyMatchStreaks error:', e.message);
   }
 }
 
@@ -353,6 +373,7 @@ module.exports = {
   eloResetAllCommand,
   eloAdjustCommand,
   applyMatchElo,
+  applyMatchStreaks,
   buildMatchEloSummary,
   buildEloLeaderboardEmbed,
   updateEloLeaderboard,

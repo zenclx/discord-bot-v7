@@ -193,7 +193,7 @@ client.on('interactionCreate', async interaction => {
     revealPrediction, scheduleMatchReminder, dmUser, postPredictionPoll, DEFAULT_LOG_CHANNEL_ID,
   } = require('./commands/creatematch');
   const { checkAchievements } = require('./commands/achievements');
-  const { applyMatchElo, buildMatchEloSummary, getEloData } = require('./commands/elo');
+  const { applyMatchElo, applyMatchStreaks, buildMatchEloSummary, getEloData } = require('./commands/elo');
 
   function makeJoinRow(matchId) {
     const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -487,6 +487,7 @@ client.on('interactionCreate', async interaction => {
         const completeData = db.get();
         completeData.matches[matchId] = match;
         db.set(completeData);
+        await applyMatchStreaks(client, match, champion);
 
         try { const guild = await client.guilds.fetch(match.guildId); await checkAchievements(client, guild, champion, completeData); } catch {}
         await postOrUpdateBracket(client, match);

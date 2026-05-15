@@ -6,9 +6,18 @@ function findActiveMatch(data, guildId, channelId, matchId) {
   if (matchId) return data.matches?.[matchId] || null;
   const matches = Object.values(data.matches || {})
     .filter(match => match.guildId === guildId && !['complete', 'cancelled'].includes(match.status))
-    .filter(match => match.privateChannelId === channelId || match.channelId === channelId)
-    .sort((a, b) => (b.endsAt || 0) - (a.endsAt || 0));
-  return matches[0] || null;
+    .sort((a, b) => (b.checkInEndsAt || b.endsAt || b.matchNum || 0) - (a.checkInEndsAt || a.endsAt || a.matchNum || 0));
+
+  return matches.find(match => match.privateChannelId === channelId || match.channelId === channelId) || matches[0] || null;
+}
+
+function formatActiveMatches(data, guildId) {
+  return Object.values(data.matches || {})
+    .filter(match => match.guildId === guildId && !['complete', 'cancelled'].includes(match.status))
+    .sort((a, b) => (b.checkInEndsAt || b.endsAt || b.matchNum || 0) - (a.checkInEndsAt || a.endsAt || a.matchNum || 0))
+    .slice(0, 5)
+    .map(match => `#${match.matchNum ?? '?'} (${match.status}) - \`${match.id}\``)
+    .join('\n');
 }
 
 function getPlayerLabel(bracketMatch, side) {
@@ -127,7 +136,11 @@ module.exports = {
     const data = db.get();
     const match = findActiveMatch(data, interaction.guildId, interaction.channelId, interaction.options.getString('matchid'));
     if (!match) {
-      return interaction.reply({ content: 'No active match found in this channel.', flags: 64 });
+      const available = formatActiveMatches(data, interaction.guildId);
+      return interaction.reply({
+        content: available ? `No active match found in this channel. Active matches:\n${available}` : 'No active match found.',
+        flags: 64,
+      });
     }
 
     return interaction.reply({ ...buildPanel(match), flags: 64 });

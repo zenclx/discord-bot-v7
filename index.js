@@ -378,10 +378,11 @@ client.on('interactionCreate', async interaction => {
     db.set(data);
     await interaction.deferUpdate();
     await interaction.message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) }).catch(() => {});
-    await saveToDiscord(client);
     const checkedCount = Object.keys(match.checkIns || {}).length;
     if (checkedCount >= getMinPlayers(match) && checkedCount >= (match.queue || []).length) {
       await startBracket(client, matchId);
+    } else {
+      await saveToDiscord(client);
     }
     return;
   }

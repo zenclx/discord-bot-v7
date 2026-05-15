@@ -7,7 +7,7 @@ const { sendStaffAuditLog } = require('../auditLog');
 function findMutableMatch(data, interaction, requestedMatchId) {
   if (requestedMatchId) return data.matches?.[requestedMatchId] || null;
   const matches = Object.values(data.matches || {})
-    .filter(match => match.guildId === interaction.guildId && ['queuing', 'checking'].includes(match.status))
+    .filter(match => match.guildId === interaction.guildId && ['queuing', 'checking', 'bracket'].includes(match.status))
     .sort((a, b) => (b.endsAt || b.checkInEndsAt || 0) - (a.endsAt || a.checkInEndsAt || 0));
 
   return matches.find(match =>
@@ -17,7 +17,7 @@ function findMutableMatch(data, interaction, requestedMatchId) {
 
 function formatMutableMatches(data, guildId) {
   const matches = Object.values(data.matches || {})
-    .filter(match => match.guildId === guildId && ['queuing', 'checking'].includes(match.status))
+    .filter(match => match.guildId === guildId && ['queuing', 'checking', 'bracket'].includes(match.status))
     .sort((a, b) => (b.checkInEndsAt || b.endsAt || 0) - (a.checkInEndsAt || a.endsAt || 0))
     .slice(0, 5);
 
@@ -44,7 +44,7 @@ module.exports = {
       return interaction.reply({
         content: available
           ? `No mutable match found in this channel. Active queue/check-in matches:\n${available}`
-          : 'No mutable match found. Subs are only allowed during queue/check-in before the bracket starts.',
+          : 'No active queue, check-in, or bracket match found.',
         flags: 64,
       });
     }
@@ -76,6 +76,14 @@ module.exports = {
         }).catch(() => {});
         const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
         await message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
+      } else if (match.status === 'bracket') {
+        const channel = await interaction.client.channels.fetch(match.privateChannelId);
+        await channel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
+        await channel.permissionOverwrites.edit(newPlayer.id, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+        }).catch(() => {});
       } else {
         const channel = await interaction.client.channels.fetch(match.channelId);
         const message = await channel.messages.fetch(match.messageId);
@@ -85,6 +93,11 @@ module.exports = {
       console.error('subplayer message update failed:', error.message);
     }
 
-    return interaction.reply({ content: `Subbed <@${oldPlayer.id}> out for <@${newPlayer.id}>.`, flags: 64 });
+    return interaction.reply({
+      content: match.status === 'bracket'
+        ? `Subbed <@${oldPlayer.id}> out for <@${newPlayer.id}> in the match roster/channel. The current bracket was not changed.`
+        : `Subbed <@${oldPlayer.id}> out for <@${newPlayer.id}>.`,
+      flags: 64,
+    });
   },
 };

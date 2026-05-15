@@ -673,10 +673,10 @@ module.exports = {
     await saveToDiscord(interaction.client);
 
     await interaction.editReply({
-      content: `<@&${MATCH_PING_ROLE_ID}>`,
+      content: testMatch ? null : `<@&${MATCH_PING_ROLE_ID}>`,
       embeds: [buildQueueEmbed(match)],
       components: [joinRow, cancelRow],
-      allowedMentions: { roles: [MATCH_PING_ROLE_ID] },
+      allowedMentions: testMatch ? { parse: [] } : { roles: [MATCH_PING_ROLE_ID] },
     });
     const msg = await interaction.fetchReply();
     match.messageId = msg.id;

@@ -170,6 +170,10 @@ client.on('interactionCreate', async interaction => {
   let customId = interaction.customId;
 
   if (interaction.isStringSelectMenu()) {
+    if (customId === 'spectate_select') {
+      const { grantSpectatorAccess } = require('./commands/spectate');
+      return grantSpectatorAccess(interaction, interaction.values[0]);
+    }
     if (!customId.startsWith('admin_select_')) return;
     if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
 
@@ -373,8 +377,12 @@ client.on('interactionCreate', async interaction => {
     data.matches[matchId] = match;
     db.set(data);
     await interaction.deferUpdate();
-    await interaction.message.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) }).catch(() => {});
+    await interaction.message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) }).catch(() => {});
     await saveToDiscord(client);
+    const checkedCount = Object.keys(match.checkIns || {}).length;
+    if (checkedCount >= getMinPlayers(match) && checkedCount >= (match.queue || []).length) {
+      await startBracket(client, matchId);
+    }
     return;
   }
 

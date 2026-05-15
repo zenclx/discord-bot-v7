@@ -19,6 +19,15 @@ function findCurrentQueue(data, interaction, requestedMatchId) {
   ) || matches[0] || null;
 }
 
+function formatMutableMatches(data, guildId) {
+  const matches = Object.values(data.matches || {})
+    .filter(match => match.guildId === guildId && ['queuing', 'checking'].includes(match.status))
+    .sort((a, b) => (b.checkInEndsAt || b.endsAt || 0) - (a.checkInEndsAt || a.endsAt || 0))
+    .slice(0, 5);
+
+  return matches.map(match => `#${match.matchNum ?? '?'} (${match.status}) - \`${match.id}\``).join('\n');
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('addplayer')
@@ -38,7 +47,13 @@ module.exports = {
 
     const match = findCurrentQueue(data, interaction, requestedMatchId);
     if (!match) {
-      return interaction.reply({ content: 'No open queue found. Use `matchid` if the queue is in another channel.', flags: 64 });
+      const available = formatMutableMatches(data, interaction.guildId);
+      return interaction.reply({
+        content: available
+          ? `No open queue found in this channel. Active queue/check-in matches:\n${available}`
+          : 'No open queue or check-in match found. Late joins are only available before the bracket starts.',
+        flags: 64,
+      });
     }
     if (!['queuing', 'checking'].includes(match.status)) {
       return interaction.reply({ content: 'That match has already started, so players can no longer be added.', flags: 64 });
@@ -71,7 +86,7 @@ module.exports = {
           ReadMessageHistory: true,
         }).catch(() => {});
         const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
-        await message.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
+        await message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
       } else {
         const channel = await interaction.client.channels.fetch(match.channelId);
         const message = await channel.messages.fetch(match.messageId);

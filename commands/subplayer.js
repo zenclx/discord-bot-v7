@@ -15,6 +15,15 @@ function findMutableMatch(data, interaction, requestedMatchId) {
   ) || matches[0] || null;
 }
 
+function formatMutableMatches(data, guildId) {
+  const matches = Object.values(data.matches || {})
+    .filter(match => match.guildId === guildId && ['queuing', 'checking'].includes(match.status))
+    .sort((a, b) => (b.checkInEndsAt || b.endsAt || 0) - (a.checkInEndsAt || a.endsAt || 0))
+    .slice(0, 5);
+
+  return matches.map(match => `#${match.matchNum ?? '?'} (${match.status}) - \`${match.id}\``).join('\n');
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('subplayer')
@@ -30,7 +39,15 @@ module.exports = {
     const newPlayer = interaction.options.getUser('new');
     const data = db.get();
     const match = findMutableMatch(data, interaction, interaction.options.getString('matchid'));
-    if (!match) return interaction.reply({ content: 'No mutable match found. Subs are only allowed during queue/check-in.', flags: 64 });
+    if (!match) {
+      const available = formatMutableMatches(data, interaction.guildId);
+      return interaction.reply({
+        content: available
+          ? `No mutable match found in this channel. Active queue/check-in matches:\n${available}`
+          : 'No mutable match found. Subs are only allowed during queue/check-in before the bracket starts.',
+        flags: 64,
+      });
+    }
     if (!match.queue.includes(oldPlayer.id)) return interaction.reply({ content: `<@${oldPlayer.id}> is not in this match.`, flags: 64 });
     if (match.queue.includes(newPlayer.id)) return interaction.reply({ content: `<@${newPlayer.id}> is already in this match.`, flags: 64 });
 
@@ -58,7 +75,7 @@ module.exports = {
           ReadMessageHistory: true,
         }).catch(() => {});
         const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
-        await message.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
+        await message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
       } else {
         const channel = await interaction.client.channels.fetch(match.channelId);
         const message = await channel.messages.fetch(match.messageId);

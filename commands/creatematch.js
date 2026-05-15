@@ -670,7 +670,7 @@ async function startCheckIn(client, matchId) {
         });
       }
       const msg = await ch.messages.fetch(current.checkInMessageId || current.messageId);
-      await msg.edit({ embeds: [buildCheckInEmbed(current)], components: makeCheckInRows(matchId) });
+      await msg.edit({ content: null, embeds: [buildCheckInEmbed(current)], components: makeCheckInRows(matchId) });
     } catch {}
     if (reminderCount >= 5) {
       clearInterval(interval);
@@ -732,7 +732,7 @@ async function startBracket(client, matchId) {
     if (match.privateChannelId && match.checkInMessageId) {
       const ch = await client.channels.fetch(match.privateChannelId);
       const msg = await ch.messages.fetch(match.checkInMessageId);
-      await msg.edit({ embeds: [buildCheckInEmbed(match)], components: [] });
+      await msg.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: [] });
     }
   } catch {}
   if (missingCheckIns.length) {

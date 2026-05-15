@@ -25,11 +25,10 @@ async function refreshEloLeaderboard(channel, eloData) {
 require('dotenv').config();
 require('./keepalive');
 const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
 const db = require('./database');
 const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup');
 const { buildScoreboardEmbed } = require('./utils');
+const { loadCommands } = require('./commands/registry');
 
 function cleanEnvValue(value) {
   return String(value || '').trim().replace(/^["']|["']$/g, '').trim();
@@ -49,39 +48,16 @@ for (const [name, value] of Object.entries({ DISCORD_TOKEN, CLIENT_ID, GUILD_ID 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 client.commands = new Collection();
 
-const commandFiles = fs.readdirSync(path.join(__dirname, 'commands')).filter(f => f.endsWith('.js'));
-const commandsData = [];
-const registeredCommandNames = new Set();
-
-function registerLocalCommand(command) {
-  if (!command?.data || !command?.execute) return;
-  const name = command.data.name;
-  if (registeredCommandNames.has(name)) return;
-  registeredCommandNames.add(name);
-  client.commands.set(name, command);
-  commandsData.push(command.data.toJSON());
-}
-
-for (const file of commandFiles) {
-  const imported = require(`./commands/${file}`);
-
-  // Single command export
-  if (imported.data && imported.execute) {
-    registerLocalCommand(imported);
-    continue;
-  }
-
-  // Multiple command exports
-  for (const value of Object.values(imported)) {
-    registerLocalCommand(value);
-  }
-}
+const localCommands = loadCommands();
+const commandsData = localCommands.map(command => command.data.toJSON());
+for (const command of localCommands) client.commands.set(command.data.name, command);
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
   try {
     console.log(`Registering ${commandsData.length} guild slash commands...`);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commandsData });
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
     console.log('Commands registered for this guild.');
   } catch (e) {
     if (e.code === 50001) {

@@ -635,7 +635,7 @@ module.exports = {
     if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ You do not have permission to create matches.', flags: 64 });
     const existingData = db.get();
     if (!existingData.eloLeaderboards?.[interaction.guildId]) {
-      return interaction.reply({ content: 'Create the ELO leaderboard first with `/eloleaderboard`, then create a match.', flags: 64 });
+      return interaction.reply({ content: 'No scoreboard found, cant run match. Create one with `/eloleaderboard` first.', flags: 64 });
     }
     await interaction.deferReply();
 

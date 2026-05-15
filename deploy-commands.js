@@ -1,7 +1,6 @@
 const { REST, Routes } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
 require('dotenv').config();
+const { loadCommands } = require('./commands/registry');
 
 function cleanEnvValue(value) {
   return String(value || '').trim().replace(/^["']|["']$/g, '').trim();
@@ -16,21 +15,7 @@ if (!token || !clientId || !guildId) {
   process.exit(1);
 }
 
-const commands = [];
-const names = new Set();
-const commandFiles = fs.readdirSync(path.join(__dirname, 'commands')).filter(file => file.endsWith('.js'));
-
-for (const file of commandFiles) {
-  const imported = require(`./commands/${file}`);
-  const exportedCommands = imported.data && imported.execute ? [imported] : Object.values(imported);
-
-  for (const command of exportedCommands) {
-    if (!command?.data || !command?.execute) continue;
-    if (names.has(command.data.name)) continue;
-    names.add(command.data.name);
-    commands.push(command.data.toJSON());
-  }
-}
+const commands = loadCommands().map(command => command.data.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(token);
 
@@ -38,6 +23,7 @@ const rest = new REST({ version: '10' }).setToken(token);
   try {
     console.log(`Registering ${commands.length} guild slash commands...`);
     await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
+    await rest.put(Routes.applicationCommands(clientId), { body: [] });
     console.log('Slash commands registered for this guild.');
   } catch (err) {
     if (err.code === 50001) {

@@ -414,6 +414,22 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: 'Match cancelled.', flags: 64 });
   }
 
+  if (customId.startsWith('undo_match_')) {
+    const matchId = customId.replace('undo_match_', '');
+    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+    const data = db.get();
+    const snapshot = data.matchUndoStack?.[matchId]?.shift();
+    if (!snapshot) return interaction.reply({ content: 'No undo snapshot found for this match.', flags: 64 });
+    if (!data.matches) data.matches = {};
+    data.matches[matchId] = snapshot.match;
+    data.elo = snapshot.elo || {};
+    db.set(data);
+    await postOrUpdateBracket(client, snapshot.match);
+    const { updateEloLeaderboard } = require('./commands/elo');
+    await updateEloLeaderboard(client, snapshot.match.guildId);
+    return interaction.reply({ content: `Undid last result: ${snapshot.label}.`, flags: 64 });
+  }
+
   if (customId.startsWith('win|') || customId.startsWith('dq|') || customId.startsWith('noshow|')) {
     if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ Staff only.', flags: 64 });
 
@@ -437,6 +453,16 @@ client.on('interactionCreate', async interaction => {
     const bracketMatch = bracketRound[matchIndex];
     if (!bracketMatch) return interaction.editReply({ content: 'Match slot not found.' });
     if (bracketMatch.winner) return interaction.editReply({ content: 'Winner already selected for that match.' });
+
+    if (!data.matchUndoStack) data.matchUndoStack = {};
+    const snapshot = {
+      ts: Date.now(),
+      actorId: interaction.user.id,
+      label: `Round ${round + 1}, Match ${matchIndex + 1}`,
+      match: JSON.parse(JSON.stringify(match)),
+      elo: JSON.parse(JSON.stringify(data.elo || {})),
+    };
+    data.matchUndoStack[matchId] = [snapshot, ...(data.matchUndoStack[matchId] || [])].slice(0, 5);
 
     const winnerId = action === 'win'
       ? selectedUserId

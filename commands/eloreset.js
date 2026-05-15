@@ -58,7 +58,17 @@ module.exports = {
     }
 
     const target = interaction.options.getUser('user');
-    eloData[target.id] = { elo: STARTING_ELO, wins: 0, losses: 0, currentStreak: 0, bestStreak: 0, matchHistory: [] };
+    eloData[target.id] = {
+      elo: STARTING_ELO,
+      wins: 0,
+      losses: 0,
+      seasonElo: STARTING_ELO,
+      seasonWins: 0,
+      seasonLosses: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      matchHistory: [],
+    };
     db.set(data);
     await updateEloLeaderboard(interaction.client, interaction.guildId);
 

@@ -45,6 +45,7 @@ function buildPanel(match) {
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`resend_bracket_${match.id}`).setLabel('Resend Bracket').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`undo_match_${match.id}`).setLabel('Undo Last').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`cancel_match_${match.id}`).setLabel('Cancel Match').setStyle(ButtonStyle.Danger),
   );
 

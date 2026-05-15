@@ -19,6 +19,7 @@ const TIERS = [
 
 const STARTING_ELO = 0;
 const LOSS_PENALTY = 25;
+const DEFAULT_LOG_CHANNEL_ID = '1384695119243907132';
 
 function getWinElo(roundIndex, isFinalRound) {
   if (isFinalRound) return 75;
@@ -39,7 +40,17 @@ function getEloData(data) {
 
 function getPlayerElo(eloData, userId) {
   if (!eloData[userId]) {
-    eloData[userId] = { elo: STARTING_ELO, wins: 0, losses: 0, currentStreak: 0, bestStreak: 0, matchHistory: [] };
+    eloData[userId] = {
+      elo: STARTING_ELO,
+      wins: 0,
+      losses: 0,
+      seasonElo: STARTING_ELO,
+      seasonWins: 0,
+      seasonLosses: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      matchHistory: [],
+    };
   }
   return eloData[userId];
 }
@@ -74,6 +85,8 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
     const winResult = applyEloChange(eloData, winnerId, gainAmount);
     const winner = getPlayerElo(eloData, winnerId);
     winner.wins = (winner.wins || 0) + 1;
+    winner.seasonElo = Math.max(0, (winner.seasonElo || 0) + gainAmount);
+    winner.seasonWins = (winner.seasonWins || 0) + 1;
     winner.matchHistory = [
       { matchId: match.id, matchNum: match.matchNum ?? null, type: 'win', delta: gainAmount, elo: winResult.newElo, round: roundIndex, opponent: loserId || null, ts: Date.now() },
       ...(winner.matchHistory || []),
@@ -84,6 +97,8 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
       lossResult = applyEloChange(eloData, loserId, -LOSS_PENALTY);
       const loser = getPlayerElo(eloData, loserId);
       loser.losses = (loser.losses || 0) + 1;
+      loser.seasonElo = Math.max(0, (loser.seasonElo || 0) - LOSS_PENALTY);
+      loser.seasonLosses = (loser.seasonLosses || 0) + 1;
       loser.matchHistory = [
         { matchId: match.id, matchNum: match.matchNum ?? null, type: 'loss', delta: -LOSS_PENALTY, elo: lossResult.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
         ...(loser.matchHistory || []),
@@ -114,6 +129,14 @@ async function applyMatchStreaks(client, match, championId) {
       if (playerId === championId) {
         player.currentStreak = Math.max(0, player.currentStreak || 0) + 1;
         player.bestStreak = Math.max(player.bestStreak || 0, player.currentStreak);
+        if (
+          player.currentStreak >= 3
+          && (player.currentStreak === 3 || player.currentStreak === 5 || player.currentStreak % 5 === 0)
+          && player.lastStreakCallout !== player.currentStreak
+        ) {
+          player.pendingStreakCallout = player.currentStreak;
+          player.lastStreakCallout = player.currentStreak;
+        }
       } else {
         player.currentStreak = 0;
         player.bestStreak = Math.max(player.bestStreak || 0, 0);
@@ -122,6 +145,21 @@ async function applyMatchStreaks(client, match, championId) {
 
     db.set(data);
     await updateEloLeaderboard(client, match.guildId);
+
+    const champion = getPlayerElo(getEloData(db.get()), championId);
+    if (champion.pendingStreakCallout) {
+      const fresh = db.get();
+      const freshChampion = getPlayerElo(getEloData(fresh), championId);
+      const streak = freshChampion.pendingStreakCallout;
+      delete freshChampion.pendingStreakCallout;
+      db.set(fresh);
+
+      const logChannelId = fresh.settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
+      const channel = await client.channels.fetch(logChannelId).catch(() => null);
+      if (channel) {
+        await channel.send(`🔥 <@${championId}> is on a **${streak} match win streak**.`);
+      }
+    }
   } catch (e) {
     console.error('applyMatchStreaks error:', e.message);
   }
@@ -305,7 +343,17 @@ const eloResetPlayerCommand = {
     const target = interaction.options.getUser('user');
     const data = db.get();
     const eloData = getEloData(data);
-    eloData[target.id] = { elo: STARTING_ELO, wins: 0, losses: 0, currentStreak: 0, bestStreak: 0, matchHistory: [] };
+    eloData[target.id] = {
+      elo: STARTING_ELO,
+      wins: 0,
+      losses: 0,
+      seasonElo: STARTING_ELO,
+      seasonWins: 0,
+      seasonLosses: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      matchHistory: [],
+    };
     db.set(data);
     await updateEloLeaderboard(interaction.client, interaction.guildId);
     try {

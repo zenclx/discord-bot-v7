@@ -16,6 +16,7 @@ const MATCH_MANAGER_ROLES = ['1387600871377993820'];
 const MATCH_CATEGORY_ID = '1333182926858223718';
 const REMINDER_AFTER_MS = 15 * 60 * 1000;
 const DEFAULT_LOG_CHANNEL_ID = '1384695119243907132';
+const MATCH_PING_ROLE_ID = '1333145733955850348';
 
 function getMinPlayers(match) {
   if (match.testMatch) return match.type === '1v1' ? 2 : 4;
@@ -671,7 +672,12 @@ module.exports = {
     db.set(data);
     await saveToDiscord(interaction.client);
 
-    await interaction.editReply({ embeds: [buildQueueEmbed(match)], components: [joinRow, cancelRow] });
+    await interaction.editReply({
+      content: `<@&${MATCH_PING_ROLE_ID}>`,
+      embeds: [buildQueueEmbed(match)],
+      components: [joinRow, cancelRow],
+      allowedMentions: { roles: [MATCH_PING_ROLE_ID] },
+    });
     const msg = await interaction.fetchReply();
     match.messageId = msg.id;
 
@@ -703,7 +709,7 @@ module.exports = {
   buildBracketTextEmbed, buildBracketComponents, buildQueueEmbed, buildQueueCancelledEmbed,
   buildNextRound, fetchDisplayNames, makeBracketAttachment,
   postOrUpdateBracket, startBracket, scheduleChannelDelete,
-  timers, canManageMatch, logMatchResult, MATCH_MANAGER_ROLES, DEFAULT_LOG_CHANNEL_ID,
+  timers, canManageMatch, logMatchResult, MATCH_MANAGER_ROLES, DEFAULT_LOG_CHANNEL_ID, MATCH_PING_ROLE_ID,
   postPredictionPoll, revealPrediction, scheduleMatchReminder,
   matchReminderTimers, dmUser, getMinPlayers,
 };

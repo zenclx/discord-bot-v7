@@ -55,23 +55,39 @@ console.log(`Loaded slash commands: ${localCommands.map(command => command.data.
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
-  try {
-    console.log(`Registering ${commandsData.length} guild slash commands...`);
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commandsData });
-    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
-    console.log('Commands registered for this guild.');
-  } catch (e) {
-    if (e.code === 50001) {
-      console.error(`Guild command registration failed with Missing Access for guild ${GUILD_ID}. Falling back to global commands.`);
-      try {
-        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commandsData });
-        console.log('Commands registered globally. They can take up to 1 hour to appear.');
-      } catch (globalError) {
-        console.error('Global command registration failed:', globalError);
-      }
-      return;
+  const connectedGuildIds = client.guilds.cache.map(guild => guild.id);
+  const guildIds = [...new Set([GUILD_ID, ...connectedGuildIds].filter(Boolean))];
+  let successfulGuilds = 0;
+
+  console.log(`Connected guilds: ${connectedGuildIds.join(', ') || 'none'}`);
+  console.log(`Registering ${commandsData.length} slash commands: ${localCommands.map(command => command.data.name).join(', ')}`);
+
+  for (const guildId of guildIds) {
+    try {
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: commandsData });
+      console.log(`Commands registered for guild ${guildId}.`);
+      successfulGuilds++;
+    } catch (e) {
+      console.error(`Guild command registration failed for ${guildId}: ${e.code || ''} ${e.message}`);
     }
-    console.error('Failed to register commands:', e);
+  }
+
+  if (successfulGuilds > 0) {
+    try {
+      await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
+      console.log('Cleared global commands to prevent duplicates.');
+    } catch (globalClearError) {
+      console.error('Failed to clear global commands:', globalClearError.message);
+    }
+    return;
+  }
+
+  console.error('No guild command registrations succeeded. Falling back to global commands.');
+  try {
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commandsData });
+    console.log('Commands registered globally. They can take up to 1 hour to appear.');
+  } catch (globalError) {
+    console.error('Global command registration failed:', globalError);
   }
 }
 

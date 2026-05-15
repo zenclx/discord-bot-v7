@@ -29,6 +29,7 @@ const db = require('./database');
 const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup');
 const { buildScoreboardEmbed } = require('./utils');
 const { loadCommands } = require('./commands/registry');
+const { sendStaffAuditLog } = require('./auditLog');
 
 function cleanEnvValue(value) {
   return String(value || '').trim().replace(/^["']|["']$/g, '').trim();
@@ -428,6 +429,10 @@ client.on('interactionCreate', async interaction => {
     delete data.matches[matchId];
     db.set(data);
     await saveToDiscord(client);
+    await sendStaffAuditLog(client, match.guildId, 'Queue Cancelled', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'Players', value: (match.queue || []).map(id => `<@${id}>`).join('\n') || 'None', inline: false },
+    ], interaction.user.id);
     return interaction.update({
       embeds: [buildQueueCancelledEmbed(match, 'Queue cancelled by the host before the match started.')],
       components: [],
@@ -452,6 +457,10 @@ client.on('interactionCreate', async interaction => {
         clearInterval(t.checkinInterval);
         timers.delete(matchId);
       }
+      await sendStaffAuditLog(client, match.guildId, 'Match Force Started From Check-In', [
+        { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+        { name: 'Checked In', value: Object.keys(match.checkIns || {}).map(id => `<@${id}>`).join('\n') || 'None', inline: false },
+      ], interaction.user.id);
       await interaction.deferUpdate();
       await startBracket(client, matchId);
       return;
@@ -467,6 +476,10 @@ client.on('interactionCreate', async interaction => {
       clearInterval(t.checkinInterval);
       timers.delete(matchId);
     }
+    await sendStaffAuditLog(client, match.guildId, 'Match Force Started', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'Players', value: (match.queue || []).map(id => `<@${id}>`).join('\n') || 'None', inline: false },
+    ], interaction.user.id);
     await interaction.deferUpdate();
     await startBracket(client, matchId);
     return;
@@ -496,6 +509,10 @@ client.on('interactionCreate', async interaction => {
     match.status = 'cancelled';
     data.matches[matchId] = match;
     db.set(data);
+    await sendStaffAuditLog(client, match.guildId, 'Match Cancelled', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'Status', value: match.status, inline: true },
+    ], interaction.user.id);
     if (match.privateChannelId) {
       const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
       if (ch) await ch.send('Match cancelled by staff.').catch(() => {});
@@ -516,6 +533,10 @@ client.on('interactionCreate', async interaction => {
     await postOrUpdateBracket(client, snapshot.match);
     const { updateEloLeaderboard } = require('./commands/elo');
     await updateEloLeaderboard(client, snapshot.match.guildId);
+    await sendStaffAuditLog(client, snapshot.match.guildId, 'Match Result Undone', [
+      { name: 'Match', value: `#${snapshot.match.matchNum ?? '?'}\n\`${matchId}\``, inline: true },
+      { name: 'Action', value: snapshot.label, inline: true },
+    ], interaction.user.id);
     return interaction.reply({ content: `Undid last result: ${snapshot.label}.`, flags: 64 });
   }
 
@@ -588,6 +609,15 @@ client.on('interactionCreate', async interaction => {
     bracketMatch.winner = winnerId;
     if (action === 'dq') bracketMatch.resultReason = `<@${selectedUserId}> DQ`;
     if (action === 'noshow') bracketMatch.resultReason = `<@${selectedUserId}> no-show`;
+    if (action === 'dq' || action === 'noshow') {
+      await sendStaffAuditLog(client, match.guildId, action === 'dq' ? 'Player DQ Applied' : 'Player No-Show Applied', [
+        { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+        { name: 'Round', value: `${round + 1}`, inline: true },
+        { name: 'Slot', value: `${matchIndex + 1}`, inline: true },
+        { name: 'Player', value: `<@${selectedUserId}>`, inline: true },
+        { name: 'Winner', value: `<@${winnerId}>`, inline: true },
+      ], interaction.user.id);
+    }
 
     // Reveal prediction
     const predId = `pred|${matchId}|${round}|${matchIndex}`;
@@ -634,7 +664,11 @@ client.on('interactionCreate', async interaction => {
 
     data.matches[matchId] = match;
     db.set(data);
-    await applyMatchElo(client, match, winnerId, loserId || null, round, isTournamentFinal);
+    const eloResult = await applyMatchElo(client, match, winnerId, loserId || null, round, isTournamentFinal);
+    if (eloResult?.streakBounty > 0 && match.privateChannelId) {
+      const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
+      if (ch) await ch.send(`<@${winnerId}> earned a **+${eloResult.streakBounty} ELO streak bounty** for ending <@${loserId}>'s streak.`);
+    }
 
     if (roundComplete) {
       if (uniqueWinners.length === 1) {

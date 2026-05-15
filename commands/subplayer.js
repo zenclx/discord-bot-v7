@@ -2,6 +2,7 @@ const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database');
 const { saveToDiscord } = require('../discordBackup');
 const { buildQueueEmbed, buildCheckInEmbed, makeCheckInRows, canManageMatch } = require('./creatematch');
+const { sendStaffAuditLog } = require('../auditLog');
 
 function findMutableMatch(data, interaction, requestedMatchId) {
   if (requestedMatchId) return data.matches?.[requestedMatchId] || null;
@@ -41,6 +42,11 @@ module.exports = {
     data.matches[match.id] = match;
     db.set(data);
     await saveToDiscord(interaction.client);
+    await sendStaffAuditLog(interaction.client, interaction.guildId, 'Player Substituted', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'Out', value: `<@${oldPlayer.id}>`, inline: true },
+      { name: 'In', value: `<@${newPlayer.id}>`, inline: true },
+    ], interaction.user.id);
 
     try {
       const channel = await interaction.client.channels.fetch(match.channelId);

@@ -8,6 +8,7 @@ const { saveToDiscord } = require('../discordBackup');
 const { DARK_BLUE } = require('../utils');
 const { buildBracketImage } = require('../bracketImage');
 const { getEloData, getPlayerElo } = require('./elo');
+const { sendStaffAuditLog } = require('../auditLog');
 
 const QUEUE_DURATION_MS = 5 * 60 * 1000;
 const CHECKIN_DURATION_MS = 5 * 60 * 1000;
@@ -151,8 +152,27 @@ function makeBracketAttachment(match) {
 }
 
 // ── Bracket generation ────────────────────────────────────────────────────────
-function generateBracket(players) {
-  const shuffled = [...players].sort(() => Math.random() - 0.5);
+function getSeededPlayers(players, eloData) {
+  return [...players].sort((a, b) => {
+    const aElo = getPlayerElo(eloData, a).elo || 0;
+    const bElo = getPlayerElo(eloData, b).elo || 0;
+    return bElo - aElo || a.localeCompare(b);
+  });
+}
+
+function orderBySeeds(items) {
+  const ordered = [];
+  let left = 0;
+  let right = items.length - 1;
+  while (left <= right) {
+    ordered.push(items[left++]);
+    if (left <= right) ordered.push(items[right--]);
+  }
+  return ordered;
+}
+
+function generateBracket(players, eloData) {
+  const shuffled = orderBySeeds(getSeededPlayers(players, eloData));
   const round = [];
   for (let i = 0; i + 1 < shuffled.length; i += 2) {
     round.push({ p1: shuffled[i], p2: shuffled[i + 1], winner: null, p1Tag: null, p2Tag: null, bye: false });
@@ -163,29 +183,39 @@ function generateBracket(players) {
   return [round];
 }
 
-function pairIntoTeams(players) {
-  const shuffled = [...players].sort(() => Math.random() - 0.5);
+function pairIntoTeams(players, eloData) {
+  const seeded = getSeededPlayers(players, eloData);
   const teams = [];
-  for (let i = 0; i < shuffled.length; i += 2) teams.push([shuffled[i], shuffled[i + 1]].filter(Boolean));
+  while (seeded.length) {
+    const high = seeded.shift();
+    const low = seeded.pop();
+    teams.push([high, low].filter(Boolean));
+  }
   return teams;
 }
 
-function generateTeamBracket(teams) {
+function getTeamElo(team, eloData) {
+  if (!team?.length) return 0;
+  return team.reduce((total, id) => total + (getPlayerElo(eloData, id).elo || 0), 0) / team.length;
+}
+
+function generateTeamBracket(teams, eloData) {
+  const seededTeams = orderBySeeds([...teams].sort((a, b) => getTeamElo(b, eloData) - getTeamElo(a, eloData)));
   const round = [];
-  for (let i = 0; i + 1 < teams.length; i += 2) {
+  for (let i = 0; i + 1 < seededTeams.length; i += 2) {
     round.push({
-      p1: teams[i][0], p2: teams[i + 1][0],
+      p1: seededTeams[i][0], p2: seededTeams[i + 1][0],
       p1Tag: `Team ${String.fromCharCode(65 + i)}`,
       p2Tag: `Team ${String.fromCharCode(65 + i + 1)}`,
       teamLabel1: `Team ${String.fromCharCode(65 + i)}`,
       teamLabel2: `Team ${String.fromCharCode(65 + i + 1)}`,
-      teamA: teams[i], teamB: teams[i + 1],
+      teamA: seededTeams[i], teamB: seededTeams[i + 1],
       winner: null, bye: false,
     });
   }
-  if (teams.length % 2 !== 0) {
-    const t = teams[teams.length - 1];
-    round.push({ p1: t[0], p2: null, winner: t[0], bye: true, byePlayer: true, p1Tag: `Team ${String.fromCharCode(65 + teams.length - 1)}`, teamA: t });
+  if (seededTeams.length % 2 !== 0) {
+    const t = seededTeams[seededTeams.length - 1];
+    round.push({ p1: t[0], p2: null, winner: t[0], bye: true, byePlayer: true, p1Tag: `Team ${String.fromCharCode(65 + seededTeams.length - 1)}`, teamA: t });
   }
   return [round];
 }
@@ -620,17 +650,24 @@ async function startBracket(client, matchId) {
   if (match.status !== 'checking') return;
 
   const minPlayers = getMinPlayers(match);
+  const missingCheckIns = (match.queue || []).filter(id => !match.checkIns?.[id]);
   match.queue = (match.queue || []).filter(id => match.checkIns?.[id]);
+  match.checkInDqs = missingCheckIns;
   if (match.queue.length < minPlayers) {
     try {
       const ch = await client.channels.fetch(match.channelId);
       const msg = await ch.messages.fetch(match.messageId);
       await msg.edit({
         embeds: [new EmbedBuilder().setTitle('Match Cancelled').setColor(0xff0000)
-          .setDescription(`Check-in failed: not enough players checked in.\n\nNeed **${minPlayers}**, but only **${match.queue.length}** checked in.`)],
+          .setDescription(`Check-in failed: not enough players checked in.\n\nNeed **${minPlayers}**, but only **${match.queue.length}** checked in.\n\nDQ'd for missing check-in:\n${missingCheckIns.map(id => `<@${id}>`).join('\n') || 'None'}`)],
         components: [],
       });
     } catch {}
+    await sendStaffAuditLog(client, match.guildId, 'Auto-DQ Check-In Failed', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'Checked In', value: String(match.queue.length), inline: true },
+      { name: 'DQ Players', value: missingCheckIns.map(id => `<@${id}>`).join('\n') || 'None', inline: false },
+    ]);
     const t = timers.get(matchId);
     if (t) {
       clearTimeout(t.timer);
@@ -646,16 +683,30 @@ async function startBracket(client, matchId) {
   }
 
   match.status = 'bracket';
+  const eloData = getEloData(data);
+  if (missingCheckIns.length) {
+    await sendStaffAuditLog(client, match.guildId, 'Auto-DQ Missing Check-In', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'DQ Players', value: missingCheckIns.map(id => `<@${id}>`).join('\n'), inline: false },
+      { name: 'Bracket Players', value: match.queue.map(id => `<@${id}>`).join('\n') || 'None', inline: false },
+    ]);
+    try {
+      const ch = await client.channels.fetch(match.channelId);
+      await ch.send({
+        content: `Auto-DQ for missing check-in: ${missingCheckIns.map(id => `<@${id}>`).join(' ')}`,
+        allowedMentions: { users: missingCheckIns },
+      });
+    } catch {}
+  }
 
   if (match.type === '2v2' && !match.testMatch) {
-    match.teams = pairIntoTeams(match.queue);
-    match.bracket = generateTeamBracket(match.teams);
+    match.teams = pairIntoTeams(match.queue, eloData);
+    match.bracket = generateTeamBracket(match.teams, eloData);
   } else {
-    match.bracket = generateBracket(match.queue);
+    match.bracket = generateBracket(match.queue, eloData);
   }
   match.currentRound = 0;
   match.eloStart = {};
-  const eloData = getEloData(data);
   for (const playerId of match.queue) {
     match.eloStart[playerId] = getPlayerElo(eloData, playerId).elo;
   }
@@ -784,6 +835,11 @@ module.exports = {
     data.matches[matchId] = match;
     db.set(data);
     await saveToDiscord(interaction.client);
+    await sendStaffAuditLog(interaction.client, interaction.guildId, 'Match Queue Created', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'Type', value: match.type.toUpperCase(), inline: true },
+      { name: 'Test Match', value: testMatch ? 'Yes' : 'No', inline: true },
+    ], interaction.user.id);
 
     await interaction.editReply({
       content: testMatch ? null : `<@&${MATCH_PING_ROLE_ID}>`,

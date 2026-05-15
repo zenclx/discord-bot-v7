@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('../database');
+const { sendStaffAuditLog } = require('../auditLog');
+const { saveToDiscord } = require('../discordBackup');
 
 const TIER_ROLES = {
   I: '1394141603962163373',
@@ -27,6 +29,37 @@ function getWinElo(roundIndex, isFinalRound) {
   if (roundIndex === 1) return 25;
   if (roundIndex === 2) return 40;
   return 50;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getEloAdjustment(winnerElo, loserElo) {
+  const diff = (loserElo || 0) - (winnerElo || 0);
+  return clamp(Math.round(diff / 120), -8, 18);
+}
+
+function getLossAdjustment(winnerElo, loserElo) {
+  const diff = (loserElo || 0) - (winnerElo || 0);
+  return clamp(Math.round(diff / 160), -8, 15);
+}
+
+function getStreakBounty(loserStreak) {
+  if ((loserStreak || 0) < 5) return 0;
+  return clamp(5 + Math.floor(((loserStreak || 0) - 5) / 2) * 2, 5, 15);
+}
+
+function calculateMatchEloDelta(winner, loser, roundIndex, isFinal) {
+  const baseGain = getWinElo(roundIndex, isFinal);
+  const winnerElo = winner?.elo || STARTING_ELO;
+  const loserElo = loser?.elo || STARTING_ELO;
+  const eloAdjustment = loser ? getEloAdjustment(winnerElo, loserElo) : 0;
+  const streakBounty = loser ? getStreakBounty(loser.currentStreak || 0) : 0;
+  const gain = Math.max(5, baseGain + eloAdjustment + streakBounty);
+  const loss = loser ? Math.max(10, LOSS_PENALTY + getLossAdjustment(winnerElo, loserElo)) : 0;
+
+  return { baseGain, eloAdjustment, streakBounty, gain, loss };
 }
 
 function getTierForElo(elo) {
@@ -80,32 +113,42 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
   try {
     const data = db.get();
     const eloData = getEloData(data);
-    const gainAmount = getWinElo(roundIndex, isFinal);
+    const winner = getPlayerElo(eloData, winnerId);
+    const loser = loserId ? getPlayerElo(eloData, loserId) : null;
+    const delta = calculateMatchEloDelta(winner, loser, roundIndex, isFinal);
+    const gainAmount = delta.gain;
 
     const winResult = applyEloChange(eloData, winnerId, gainAmount);
-    const winner = getPlayerElo(eloData, winnerId);
     winner.wins = (winner.wins || 0) + 1;
     winner.seasonElo = Math.max(0, (winner.seasonElo || 0) + gainAmount);
     winner.seasonWins = (winner.seasonWins || 0) + 1;
     winner.matchHistory = [
-      { matchId: match.id, matchNum: match.matchNum ?? null, type: 'win', delta: gainAmount, elo: winResult.newElo, round: roundIndex, opponent: loserId || null, ts: Date.now() },
+      { matchId: match.id, matchNum: match.matchNum ?? null, type: 'win', delta: gainAmount, elo: winResult.newElo, round: roundIndex, opponent: loserId || null, streakBounty: delta.streakBounty, ts: Date.now() },
       ...(winner.matchHistory || []),
     ].slice(0, 50);
 
     let lossResult = null;
     if (loserId) {
-      lossResult = applyEloChange(eloData, loserId, -LOSS_PENALTY);
-      const loser = getPlayerElo(eloData, loserId);
+      lossResult = applyEloChange(eloData, loserId, -delta.loss);
       loser.losses = (loser.losses || 0) + 1;
-      loser.seasonElo = Math.max(0, (loser.seasonElo || 0) - LOSS_PENALTY);
+      loser.seasonElo = Math.max(0, (loser.seasonElo || 0) - delta.loss);
       loser.seasonLosses = (loser.seasonLosses || 0) + 1;
       loser.matchHistory = [
-        { matchId: match.id, matchNum: match.matchNum ?? null, type: 'loss', delta: -LOSS_PENALTY, elo: lossResult.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
+        { matchId: match.id, matchNum: match.matchNum ?? null, type: 'loss', delta: -delta.loss, elo: lossResult.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
         ...(loser.matchHistory || []),
       ].slice(0, 50);
     }
 
+    if (!match.eloEvents) match.eloEvents = [];
+    match.eloEvents.push({
+      ts: Date.now(), winnerId, loserId: loserId || null, round: roundIndex,
+      gain: gainAmount, loss: delta.loss, baseGain: delta.baseGain,
+      eloAdjustment: delta.eloAdjustment, streakBounty: delta.streakBounty,
+    });
+    if (data.matches?.[match.id]) data.matches[match.id] = match;
+
     db.set(data);
+    await saveToDiscord(client);
     await updateEloLeaderboard(client, match.guildId);
 
     try {
@@ -113,8 +156,10 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
       await syncRoles(guild, winnerId, getTierForElo(winResult.newElo));
       if (loserId && lossResult) await syncRoles(guild, loserId, getTierForElo(lossResult.newElo));
     } catch {}
+    return { winner: winResult, loser: lossResult, ...delta };
   } catch (e) {
     console.error('applyMatchElo error:', e.message);
+    return null;
   }
 }
 
@@ -144,6 +189,7 @@ async function applyMatchStreaks(client, match, championId) {
     }
 
     db.set(data);
+    await saveToDiscord(client);
     await updateEloLeaderboard(client, match.guildId);
 
     const champion = getPlayerElo(getEloData(db.get()), championId);
@@ -153,6 +199,7 @@ async function applyMatchStreaks(client, match, championId) {
       const streak = freshChampion.pendingStreakCallout;
       delete freshChampion.pendingStreakCallout;
       db.set(fresh);
+      await saveToDiscord(client);
 
       const logChannelId = fresh.settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
       const channel = await client.channels.fetch(logChannelId).catch(() => null);
@@ -355,7 +402,11 @@ const eloResetPlayerCommand = {
       matchHistory: [],
     };
     db.set(data);
+    await saveToDiscord(interaction.client);
     await updateEloLeaderboard(interaction.client, interaction.guildId);
+    await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Player Reset', [
+      { name: 'Player', value: `<@${target.id}>`, inline: true },
+    ], interaction.user.id);
     try {
       const guild = await interaction.client.guilds.fetch(interaction.guildId);
       await syncRoles(guild, target.id, getTierForElo(STARTING_ELO));
@@ -384,7 +435,11 @@ const eloResetAllCommand = {
     const resetCount = Object.keys(eloData).length;
     data.elo = {};
     db.set(data);
+    await saveToDiscord(interaction.client);
     await updateEloLeaderboard(interaction.client, interaction.guildId);
+    await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Reset All', [
+      { name: 'Players Reset', value: String(resetCount), inline: true },
+    ], interaction.user.id);
     await interaction.reply({ content: `Reset ELO and win/loss records for **${resetCount}** players.`, flags: 64 });
   },
 };
@@ -404,7 +459,13 @@ const eloAdjustCommand = {
     const eloData = getEloData(data);
     const result = applyEloChange(eloData, target.id, amount);
     db.set(data);
+    await saveToDiscord(interaction.client);
     await updateEloLeaderboard(interaction.client, interaction.guildId);
+    await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Adjusted', [
+      { name: 'Player', value: `<@${target.id}>`, inline: true },
+      { name: 'Change', value: `${amount >= 0 ? '+' : ''}${amount}`, inline: true },
+      { name: 'Result', value: `${result.oldElo} -> ${result.newElo}`, inline: true },
+    ], interaction.user.id);
     try {
       const guild = await interaction.client.guilds.fetch(interaction.guildId);
       await syncRoles(guild, target.id, getTierForElo(result.newElo));
@@ -431,4 +492,6 @@ module.exports = {
   syncRoles,
   STARTING_ELO,
   TIERS,
+  calculateMatchEloDelta,
+  getStreakBounty,
 };

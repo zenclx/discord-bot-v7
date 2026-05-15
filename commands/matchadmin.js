@@ -34,6 +34,7 @@ function buildPanel(match) {
   }
 
   const pending = match.bracket?.[match.currentRound]?.filter(m => !m.winner && !m.bye) || [];
+  const currentRound = match.bracket?.[match.currentRound] || [];
   embed.addFields({
     name: 'Pending Matches',
     value: pending.length
@@ -47,7 +48,34 @@ function buildPanel(match) {
     new ButtonBuilder().setCustomId(`cancel_match_${match.id}`).setLabel('Cancel Match').setStyle(ButtonStyle.Danger),
   );
 
-  return { embeds: [embed], components: [row] };
+  const actionRows = currentRound
+    .map((bracketMatch, matchIndex) => ({ bracketMatch, matchIndex }))
+    .filter(({ bracketMatch }) => !bracketMatch.winner && !bracketMatch.bye)
+    .slice(0, 4)
+    .map(({ bracketMatch, matchIndex }) => {
+      const p1Label = bracketMatch.teamLabel1 || bracketMatch.p1Tag || 'Player 1';
+      const p2Label = bracketMatch.teamLabel2 || bracketMatch.p2Tag || 'Player 2';
+      return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`noshow|${match.id}|${match.currentRound}|${matchIndex}|${bracketMatch.p1}`)
+          .setLabel(`M${matchIndex + 1}: ${p1Label.slice(0, 14)} no-show`)
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`dq|${match.id}|${match.currentRound}|${matchIndex}|${bracketMatch.p1}`)
+          .setLabel(`DQ ${p1Label.slice(0, 16)}`)
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`noshow|${match.id}|${match.currentRound}|${matchIndex}|${bracketMatch.p2}`)
+          .setLabel(`M${matchIndex + 1}: ${p2Label.slice(0, 14)} no-show`)
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`dq|${match.id}|${match.currentRound}|${matchIndex}|${bracketMatch.p2}`)
+          .setLabel(`DQ ${p2Label.slice(0, 16)}`)
+          .setStyle(ButtonStyle.Danger),
+      );
+    });
+
+  return { embeds: [embed], components: [...actionRows, row] };
 }
 
 module.exports = {
@@ -71,6 +99,6 @@ module.exports = {
       return interaction.reply({ content: 'No active match found in this channel.', flags: 64 });
     }
 
-    return interaction.reply(buildPanel(match));
+    return interaction.reply({ ...buildPanel(match), flags: 64 });
   },
 };

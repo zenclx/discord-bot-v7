@@ -107,26 +107,6 @@ function buildBracketComponents(match, round) {
           .setStyle(ButtonStyle.Primary),
       );
       rows.push(row);
-
-      const adminRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`noshow|${match.id}|${round}|${i}|${m.p1}`)
-          .setLabel(`${p1Label.slice(0, 18)} no-show`)
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId(`dq|${match.id}|${round}|${i}|${m.p1}`)
-          .setLabel(`${p1Label.slice(0, 18)} DQ`)
-          .setStyle(ButtonStyle.Danger),
-        new ButtonBuilder()
-          .setCustomId(`noshow|${match.id}|${round}|${i}|${m.p2}`)
-          .setLabel(`${p2Label.slice(0, 18)} no-show`)
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId(`dq|${match.id}|${round}|${i}|${m.p2}`)
-          .setLabel(`${p2Label.slice(0, 18)} DQ`)
-          .setStyle(ButtonStyle.Danger),
-      );
-      rows.push(adminRow);
     }
   });
   return rows.slice(0, 5);

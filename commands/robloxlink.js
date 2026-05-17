@@ -1,9 +1,15 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const db = require('../database');
 const { getTierForElo, getEloData, getPlayerElo, TIERS } = require('./elo');
-const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, TIER_RANKS, STAFF_RANKS, ROLE_PREFIXES, PREFIX_PRIORITY } = require('../robloxSync');
+const { linkRobloxAccount, syncRobloxTierForDiscordUser, syncRobloxUpdateForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, TIER_RANKS, STAFF_RANKS, ROLE_PREFIXES, PREFIX_PRIORITY } = require('../robloxSync');
 
 const VERIFIED_COMPETITOR_ROLE_ID = process.env.VERIFIED_COMPETITOR_ROLE_ID || '';
+const DISCORD_STAFF_ROLE_ID = '1387600871377993820';
+const COORDINATOR_ROBLOX_ROLE_IDS = new Set([
+  STAFF_ROLE_IDS.trial_coordinator,
+  STAFF_ROLE_IDS.coordinator,
+  STAFF_ROLE_IDS.senior_coordinator,
+]);
 
 function formatDiscordTierRole(tier) {
   return `<@&${tier.roleId}>`;
@@ -28,6 +34,11 @@ function getNicknamePrefix(sync, tier) {
   return `[T${tier.tier}]`;
 }
 
+function getTierFromRobloxRoles(roles, fallbackTier) {
+  const roleSet = new Set(roles || []);
+  return TIERS.find(tier => roleSet.has(TIER_ROLE_IDS[tier.tier])) || fallbackTier;
+}
+
 async function syncDiscordNickname(interaction, target, linked, tier, sync) {
   try {
     const member = target.id === interaction.user.id && interaction.member
@@ -46,7 +57,12 @@ async function syncDiscordNickname(interaction, target, linked, tier, sync) {
   }
 }
 
-async function syncDiscordVerifiedRoles(interaction, target, tier) {
+function hasCoordinatorRobloxRole(sync) {
+  const roles = new Set(sync.roles || []);
+  return [...COORDINATOR_ROBLOX_ROLE_IDS].some(roleId => roles.has(roleId));
+}
+
+async function syncDiscordVerifiedRoles(interaction, target, tier, sync) {
   const result = { added: [], removed: [], warning: null };
 
   try {
@@ -68,6 +84,11 @@ async function syncDiscordVerifiedRoles(interaction, target, tier) {
       await member.roles.add(VERIFIED_COMPETITOR_ROLE_ID, 'Roblox account verified/updated');
       result.added.push(VERIFIED_COMPETITOR_ROLE_ID);
     }
+
+    if (hasCoordinatorRobloxRole(sync) && DISCORD_STAFF_ROLE_ID && !member.roles.cache.has(DISCORD_STAFF_ROLE_ID)) {
+      await member.roles.add(DISCORD_STAFF_ROLE_ID, 'Roblox coordinator role verified/updated');
+      result.added.push(DISCORD_STAFF_ROLE_ID);
+    }
   } catch (error) {
     console.error('Discord verified role sync failed:', error.message);
     result.warning = 'Discord roles could not be updated. Check the bot role position and role IDs.';
@@ -83,6 +104,12 @@ function getDisplayAddedRoles(tier) {
   ];
 }
 
+function getDisplayStaffRole(sync) {
+  return hasCoordinatorRobloxRole(sync)
+    ? [formatDiscordRole(DISCORD_STAFF_ROLE_ID)]
+    : [];
+}
+
 function buildUpdateEmbed(target, linked, tier, sync, discordRoles) {
   const removedRoles = [
     ...(sync.removed || []).map(formatRemovedRole),
@@ -95,7 +122,7 @@ function buildUpdateEmbed(target, linked, tier, sync, discordRoles) {
     .addFields(
       {
         name: 'Roles Added',
-        value: sync.skipped ? 'None' : getDisplayAddedRoles(tier).join('\n'),
+        value: sync.skipped ? 'None' : [...getDisplayAddedRoles(tier), ...getDisplayStaffRole(sync)].join('\n'),
         inline: false,
       },
       {
@@ -121,9 +148,10 @@ async function linkAndSync(interaction, target, roblox) {
   }
 
   const data = db.get();
-  const tier = getTierForElo(getPlayerElo(getEloData(data), target.id).elo || 0);
-  const sync = await syncRobloxTierForDiscordUser(interaction.client, interaction.guildId, target.id, tier);
-  const discordRoles = await syncDiscordVerifiedRoles(interaction, target, tier);
+  const fallbackTier = getTierForElo(getPlayerElo(getEloData(data), target.id).elo || 0);
+  const sync = await syncRobloxUpdateForDiscordUser(interaction.client, interaction.guildId, target.id, fallbackTier);
+  const tier = getTierFromRobloxRoles(sync.roles, fallbackTier);
+  const discordRoles = await syncDiscordVerifiedRoles(interaction, target, tier, sync);
   await syncDiscordNickname(interaction, target, linked, tier, sync);
   return { linked, tier, sync, discordRoles };
 }

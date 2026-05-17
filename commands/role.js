@@ -7,6 +7,13 @@ const {
   addRobloxRolesForDiscordUser,
 } = require('../robloxSync');
 
+const DISCORD_STAFF_ROLE_ID = '1387600871377993820';
+const COORDINATOR_ROBLOX_ROLE_IDS = new Set([
+  STAFF_ROLE_IDS.trial_coordinator,
+  STAFF_ROLE_IDS.coordinator,
+  STAFF_ROLE_IDS.senior_coordinator,
+]);
+
 const ROLE_CHOICES = [
   { name: 'Tier 1', value: TIER_ROLE_IDS.I },
   { name: 'Tier 2', value: TIER_ROLE_IDS.II },
@@ -37,6 +44,23 @@ function getSelectedRoles(interaction) {
     if (roleId) roles.push(roleId);
   }
   return [...new Set(roles)];
+}
+
+async function syncDiscordStaffRole(interaction, target, robloxRoleIds) {
+  if (![...COORDINATOR_ROBLOX_ROLE_IDS].some(roleId => robloxRoleIds.includes(roleId))) {
+    return { added: false, warning: null };
+  }
+
+  try {
+    const member = await interaction.guild.members.fetch(target.id);
+    if (member.roles.cache.has(DISCORD_STAFF_ROLE_ID)) return { added: false, warning: null };
+
+    await member.roles.add(DISCORD_STAFF_ROLE_ID, 'Roblox coordinator role added from Discord');
+    return { added: true, warning: null };
+  } catch (error) {
+    console.error('Discord staff role sync failed:', error.message);
+    return { added: false, warning: 'Could not add Discord staff role. Check the bot role position.' };
+  }
 }
 
 const builder = new SlashCommandBuilder()
@@ -71,6 +95,7 @@ module.exports = {
         roles,
         interaction.user.id,
       );
+      const discordStaff = await syncDiscordStaffRole(interaction, target, result.requested);
 
       const embed = new EmbedBuilder()
         .setColor(0x1f4fd8)
@@ -89,6 +114,11 @@ module.exports = {
           {
             name: 'Roles Removed',
             value: result.removed.map(roleId => ROLE_LABELS[roleId] || roleId).join('\n') || 'None',
+            inline: false,
+          },
+          {
+            name: 'Discord Staff Role',
+            value: discordStaff.warning || (discordStaff.added ? `<@&${DISCORD_STAFF_ROLE_ID}>` : 'No change'),
             inline: false,
           },
         )

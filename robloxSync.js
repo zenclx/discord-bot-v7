@@ -267,6 +267,72 @@ async function syncRobloxTierForDiscordUser(client, guildId, discordUserId, tier
   return { skipped: false, robloxUserId: link.robloxUserId, robloxUsername: link.robloxUsername, targetRoleId, removed, roles: desiredRoles };
 }
 
+async function syncRobloxUpdateForDiscordUser(client, guildId, discordUserId, fallbackTier) {
+  const data = db.get();
+  const link = getRobloxLinks(data, guildId)[discordUserId];
+  if (!link?.robloxUserId) return { skipped: true, reason: 'No linked Roblox account.' };
+
+  const fallbackRoleId = TIER_ROLE_IDS[fallbackTier?.tier || fallbackTier];
+  if (!fallbackRoleId) return { skipped: true, reason: 'No mapped Roblox tier role.' };
+
+  const membership = await getGroupMembership(link.robloxUserId);
+  if (!membership) throw new Error(`${link.robloxUsername || link.robloxUserId} is not in Roblox group ${ROBLOX_GROUP_ID}.`);
+
+  const membershipId = getMembershipId(membership);
+  if (!membershipId) {
+    console.error('Roblox membership missing usable id:', JSON.stringify(membership));
+    throw new Error('Could not read Roblox group membership ID.');
+  }
+
+  const currentRoles = getMembershipRoles(membership);
+  const existingTierRole = ['I', 'II', 'III', 'IV', 'V']
+    .map(tier => [tier, TIER_ROLE_IDS[tier]])
+    .find(([, roleId]) => currentRoles.includes(roleId));
+  const targetRoleId = existingTierRole?.[1] || fallbackRoleId;
+  const added = [];
+  let roles = currentRoles;
+
+  if (!existingTierRole) {
+    try {
+      await assignRole(membershipId, targetRoleId);
+    } catch (error) {
+      console.warn(`assign default tier failed for membership ${membershipId}, trying PATCH fallback: ${error.message}`);
+      await setMembershipRoles(membershipId, [...new Set([...currentRoles, targetRoleId])]);
+    }
+    added.push(targetRoleId);
+    roles = [...new Set([...currentRoles, targetRoleId])];
+  }
+
+  const tier = Object.entries(TIER_ROLE_IDS).find(([, roleId]) => roleId === targetRoleId)?.[0] || fallbackTier?.tier || fallbackTier;
+  const freshData = db.get();
+  const freshLinks = getRobloxLinks(freshData, guildId);
+  freshLinks[discordUserId] = {
+    ...freshLinks[discordUserId],
+    lastSyncedTier: tier,
+    lastSyncedRoleId: targetRoleId,
+    lastSyncedAt: Date.now(),
+  };
+  db.set(freshData);
+  await saveToDiscord(client);
+
+  await sendStaffAuditLog(client, guildId, 'Roblox Update Synced', [
+    { name: 'Discord User', value: `<@${discordUserId}>`, inline: true },
+    { name: 'Roblox User', value: `${link.robloxUsername || link.robloxUserId} (${link.robloxUserId})`, inline: true },
+    { name: 'Tier Role', value: `${tier} -> ${targetRoleId}`, inline: true },
+    { name: 'Group Roles', value: roles.map(roleId => ROLE_LABELS[roleId] || roleId).join('\n').slice(0, 1000) || 'None', inline: false },
+  ]);
+
+  return {
+    skipped: false,
+    robloxUserId: link.robloxUserId,
+    robloxUsername: link.robloxUsername,
+    targetRoleId,
+    added,
+    removed: [],
+    roles,
+  };
+}
+
 async function addRobloxRolesForDiscordUser(client, guildId, discordUserId, roleIds, actorId = null) {
   const data = db.get();
   const link = getRobloxLinks(data, guildId)[discordUserId];
@@ -365,5 +431,6 @@ module.exports = {
   lookupRobloxUser,
   linkRobloxAccount,
   syncRobloxTierForDiscordUser,
+  syncRobloxUpdateForDiscordUser,
   addRobloxRolesForDiscordUser,
 };

@@ -38,6 +38,28 @@ const STAFF_RANKS = {
   vp_admin: '16',
 };
 
+const ROLE_PREFIXES = {
+  [TIER_ROLE_IDS.I]: '[T1]',
+  [TIER_ROLE_IDS.II]: '[T2]',
+  [TIER_ROLE_IDS.III]: '[T3]',
+  [TIER_ROLE_IDS.IV]: '[T4]',
+  [TIER_ROLE_IDS.V]: '[T5]',
+  [STAFF_ROLE_IDS.senior_coordinator]: '[SC]',
+  [STAFF_ROLE_IDS.coordinator]: '[C]',
+  [STAFF_ROLE_IDS.trial_coordinator]: '[JC]',
+};
+
+const PREFIX_PRIORITY = [
+  STAFF_ROLE_IDS.senior_coordinator,
+  STAFF_ROLE_IDS.coordinator,
+  STAFF_ROLE_IDS.trial_coordinator,
+  TIER_ROLE_IDS.I,
+  TIER_ROLE_IDS.II,
+  TIER_ROLE_IDS.III,
+  TIER_ROLE_IDS.IV,
+  TIER_ROLE_IDS.V,
+];
+
 function getApiKey() {
   return process.env.ROBLOX_OPEN_CLOUD_API_KEY || process.env.ROBLOX_API_KEY || '';
 }
@@ -223,7 +245,7 @@ async function syncRobloxTierForDiscordUser(client, guildId, discordUserId, tier
     { name: 'Removed Tier Roles', value: removed.length ? removed.join(', ') : 'None', inline: false },
   ]);
 
-  return { skipped: false, robloxUserId: link.robloxUserId, robloxUsername: link.robloxUsername, targetRoleId, removed };
+  return { skipped: false, robloxUserId: link.robloxUserId, robloxUsername: link.robloxUsername, targetRoleId, removed, roles: desiredRoles };
 }
 
 async function linkRobloxAccount(client, guildId, discordUserId, robloxUser) {
@@ -249,6 +271,8 @@ module.exports = {
   STAFF_ROLE_IDS,
   TIER_RANKS,
   STAFF_RANKS,
+  ROLE_PREFIXES,
+  PREFIX_PRIORITY,
   getRobloxLinks,
   lookupRobloxUser,
   linkRobloxAccount,

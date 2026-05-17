@@ -1,11 +1,43 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const db = require('../database');
-const { getTierForElo, getEloData, getPlayerElo } = require('./elo');
-const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, TIER_RANKS, STAFF_RANKS } = require('../robloxSync');
+const { getTierForElo, getEloData, getPlayerElo, TIERS } = require('./elo');
+const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, TIER_RANKS, STAFF_RANKS, ROLE_PREFIXES, PREFIX_PRIORITY } = require('../robloxSync');
 
-function formatRobloxTierRole(tier, roleId) {
-  const rank = TIER_RANKS[tier] || '?';
-  return `@Tier ${tier} [${rank}+]`;
+function formatDiscordTierRole(tier) {
+  return `<@&${tier.roleId}>`;
+}
+
+function formatRemovedRole(roleId) {
+  const tier = Object.entries(TIER_ROLE_IDS).find(([, mappedRoleId]) => mappedRoleId === roleId)?.[0];
+  if (!tier) return `@${roleId}`;
+  const discordTier = TIERS.find(t => t.tier === tier);
+  return discordTier ? `<@&${discordTier.roleId}>` : `@Tier ${tier}`;
+}
+
+function getNicknamePrefix(sync, tier) {
+  const roles = new Set(sync.roles?.length ? sync.roles : [sync.targetRoleId]);
+  for (const roleId of PREFIX_PRIORITY) {
+    if (roles.has(roleId)) return ROLE_PREFIXES[roleId];
+  }
+  return `[T${tier.tier}]`;
+}
+
+async function syncDiscordNickname(interaction, target, linked, tier, sync) {
+  try {
+    const member = target.id === interaction.user.id && interaction.member
+      ? interaction.member
+      : await interaction.guild.members.fetch(target.id);
+    const prefix = getNicknamePrefix(sync, tier);
+    const nickname = `${prefix} ${linked.robloxUsername}`.slice(0, 32);
+    if (member.manageable && member.displayName !== nickname) {
+      await member.setNickname(nickname, 'Roblox account verified/updated');
+      return nickname;
+    }
+    return null;
+  } catch (error) {
+    console.error('Roblox nickname sync failed:', error.message);
+    return null;
+  }
 }
 
 function buildUpdateEmbed(target, linked, tier, sync) {
@@ -15,13 +47,13 @@ function buildUpdateEmbed(target, linked, tier, sync) {
     .addFields(
       {
         name: 'Roles Added',
-        value: sync.skipped ? 'None' : formatRobloxTierRole(tier.tier, sync.targetRoleId),
+        value: sync.skipped ? 'None' : formatDiscordTierRole(tier),
         inline: false,
       },
       {
         name: 'Roles Removed',
         value: sync.removed?.length
-          ? sync.removed.map(roleId => `@${roleId}`).join('\n')
+          ? sync.removed.map(formatRemovedRole).join('\n')
           : 'None',
         inline: false,
       },
@@ -43,6 +75,7 @@ async function linkAndSync(interaction, target, roblox) {
   const data = db.get();
   const tier = getTierForElo(getPlayerElo(getEloData(data), target.id).elo || 0);
   const sync = await syncRobloxTierForDiscordUser(interaction.client, interaction.guildId, target.id, tier);
+  await syncDiscordNickname(interaction, target, linked, tier, sync);
   return { linked, tier, sync };
 }
 

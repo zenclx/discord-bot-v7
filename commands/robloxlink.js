@@ -3,8 +3,14 @@ const db = require('../database');
 const { getTierForElo, getEloData, getPlayerElo, TIERS } = require('./elo');
 const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, TIER_RANKS, STAFF_RANKS, ROLE_PREFIXES, PREFIX_PRIORITY } = require('../robloxSync');
 
+const VERIFIED_COMPETITOR_ROLE_ID = process.env.VERIFIED_COMPETITOR_ROLE_ID || '';
+
 function formatDiscordTierRole(tier) {
   return `<@&${tier.roleId}>`;
+}
+
+function formatDiscordRole(roleId) {
+  return `<@&${roleId}>`;
 }
 
 function formatRemovedRole(roleId) {
@@ -40,20 +46,62 @@ async function syncDiscordNickname(interaction, target, linked, tier, sync) {
   }
 }
 
-function buildUpdateEmbed(target, linked, tier, sync) {
+async function syncDiscordVerifiedRoles(interaction, target, tier) {
+  const result = { added: [], removed: [], warning: null };
+
+  try {
+    const member = await interaction.guild.members.fetch(target.id);
+    const tierRoleIds = TIERS.map(t => t.roleId);
+    const oldTierRoles = member.roles.cache.filter(role => tierRoleIds.includes(role.id) && role.id !== tier.roleId);
+
+    if (oldTierRoles.size) {
+      await member.roles.remove(oldTierRoles, 'Roblox account verified/updated');
+      result.removed.push(...oldTierRoles.map(role => role.id));
+    }
+
+    if (!member.roles.cache.has(tier.roleId)) {
+      await member.roles.add(tier.roleId, 'Roblox account verified/updated');
+      result.added.push(tier.roleId);
+    }
+
+    if (VERIFIED_COMPETITOR_ROLE_ID && !member.roles.cache.has(VERIFIED_COMPETITOR_ROLE_ID)) {
+      await member.roles.add(VERIFIED_COMPETITOR_ROLE_ID, 'Roblox account verified/updated');
+      result.added.push(VERIFIED_COMPETITOR_ROLE_ID);
+    }
+  } catch (error) {
+    console.error('Discord verified role sync failed:', error.message);
+    result.warning = 'Discord roles could not be updated. Check the bot role position and role IDs.';
+  }
+
+  return result;
+}
+
+function getDisplayAddedRoles(tier) {
+  return [
+    formatDiscordTierRole(tier),
+    ...(VERIFIED_COMPETITOR_ROLE_ID ? [formatDiscordRole(VERIFIED_COMPETITOR_ROLE_ID)] : []),
+  ];
+}
+
+function buildUpdateEmbed(target, linked, tier, sync, discordRoles) {
+  const removedRoles = [
+    ...(sync.removed || []).map(formatRemovedRole),
+    ...(discordRoles?.removed || []).map(formatDiscordRole),
+  ];
+
   return new EmbedBuilder()
     .setColor(0x1f4fd8)
     .setAuthor({ name: `${target.username} updated`, iconURL: target.displayAvatarURL({ size: 64 }) })
     .addFields(
       {
         name: 'Roles Added',
-        value: sync.skipped ? 'None' : formatDiscordTierRole(tier),
+        value: sync.skipped ? 'None' : getDisplayAddedRoles(tier).join('\n'),
         inline: false,
       },
       {
         name: 'Roles Removed',
-        value: sync.removed?.length
-          ? sync.removed.map(formatRemovedRole).join('\n')
+        value: removedRoles.length
+          ? [...new Set(removedRoles)].join('\n')
           : 'None',
         inline: false,
       },
@@ -75,8 +123,14 @@ async function linkAndSync(interaction, target, roblox) {
   const data = db.get();
   const tier = getTierForElo(getPlayerElo(getEloData(data), target.id).elo || 0);
   const sync = await syncRobloxTierForDiscordUser(interaction.client, interaction.guildId, target.id, tier);
+  const discordRoles = await syncDiscordVerifiedRoles(interaction, target, tier);
   await syncDiscordNickname(interaction, target, linked, tier, sync);
-  return { linked, tier, sync };
+  return { linked, tier, sync, discordRoles };
+}
+
+function canManageRobloxLinks(interaction) {
+  return interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+    || interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
 }
 
 const verifyRobloxCommand = {
@@ -90,8 +144,8 @@ const verifyRobloxCommand = {
     await interaction.deferReply({ flags: 64 });
 
     try {
-      const { linked, tier, sync } = await linkAndSync(interaction, interaction.user, roblox);
-      await interaction.editReply({ embeds: [buildUpdateEmbed(interaction.user, linked, tier, sync)] });
+      const { linked, tier, sync, discordRoles } = await linkAndSync(interaction, interaction.user, roblox);
+      await interaction.editReply({ embeds: [buildUpdateEmbed(interaction.user, linked, tier, sync, discordRoles)] });
     } catch (error) {
       await interaction.editReply({ content: `Roblox verify failed: ${error.message}` });
     }
@@ -102,7 +156,6 @@ const robloxLinkCommand = {
   data: new SlashCommandBuilder()
     .setName('update')
     .setDescription('Link or update a player Roblox account and sync their group tier rank')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName('user').setDescription('Optional Discord user').setRequired(false))
     .addStringOption(o => o.setName('roblox').setDescription('Optional Roblox username or user ID').setRequired(false)),
 
@@ -111,9 +164,13 @@ const robloxLinkCommand = {
     const roblox = interaction.options.getString('roblox');
     await interaction.deferReply({ flags: 64 });
 
+    if (target.id !== interaction.user.id && !canManageRobloxLinks(interaction)) {
+      return interaction.editReply({ content: 'Only staff can update another player.' });
+    }
+
     try {
-      const { linked, tier, sync } = await linkAndSync(interaction, target, roblox);
-      await interaction.editReply({ embeds: [buildUpdateEmbed(target, linked, tier, sync)] });
+      const { linked, tier, sync, discordRoles } = await linkAndSync(interaction, target, roblox);
+      await interaction.editReply({ embeds: [buildUpdateEmbed(target, linked, tier, sync, discordRoles)] });
     } catch (error) {
       await interaction.editReply({ content: `Roblox update failed: ${error.message}` });
     }
@@ -174,6 +231,7 @@ const robloxStatusCommand = {
       content: [
         `Roblox Group: **${ROBLOX_GROUP_ID}**`,
         `Linked user: ${link ? `${link.robloxUsername} (${link.robloxUserId})` : 'Not linked'}`,
+        `Verified Competitor role: ${VERIFIED_COMPETITOR_ROLE_ID ? `<@&${VERIFIED_COMPETITOR_ROLE_ID}>` : 'Not configured'}`,
         '',
         '**Tier Roles**',
         tierLines,

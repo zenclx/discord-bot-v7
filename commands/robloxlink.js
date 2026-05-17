@@ -5,6 +5,11 @@ const { linkRobloxAccount, syncRobloxTierForDiscordUser, syncRobloxUpdateForDisc
 
 const VERIFIED_COMPETITOR_ROLE_ID = process.env.VERIFIED_COMPETITOR_ROLE_ID || '';
 const DISCORD_STAFF_ROLE_ID = '1387600871377993820';
+const DISCORD_COORDINATOR_ROLE_IDS = {
+  [STAFF_ROLE_IDS.trial_coordinator]: '1333145733968302163',
+  [STAFF_ROLE_IDS.coordinator]: '1333145733968302164',
+  [STAFF_ROLE_IDS.senior_coordinator]: '1333145733968302162',
+};
 const STAFF_ROBLOX_ROLE_IDS = new Set(Object.values(STAFF_ROLE_IDS));
 const MANAGED_ROBLOX_ROLE_IDS = new Set([
   ...Object.values(TIER_ROLE_IDS),
@@ -70,6 +75,10 @@ function findRoleByName(guild, name) {
 function getDiscordRoleIdForRobloxRole(guild, robloxRoleId) {
   const tierName = Object.entries(TIER_ROLE_IDS).find(([, roleId]) => roleId === robloxRoleId)?.[0];
   if (tierName) return TIERS.find(tier => tier.tier === tierName)?.roleId || null;
+
+  if (DISCORD_COORDINATOR_ROLE_IDS[robloxRoleId]) {
+    return DISCORD_COORDINATOR_ROLE_IDS[robloxRoleId];
+  }
 
   if (robloxRoleId === EXTRA_ROLE_IDS.verified_competitor && VERIFIED_COMPETITOR_ROLE_ID) {
     return VERIFIED_COMPETITOR_ROLE_ID;

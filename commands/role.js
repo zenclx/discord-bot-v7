@@ -8,6 +8,11 @@ const {
 } = require('../robloxSync');
 
 const DISCORD_STAFF_ROLE_ID = '1387600871377993820';
+const DISCORD_COORDINATOR_ROLE_IDS = {
+  [STAFF_ROLE_IDS.trial_coordinator]: '1333145733968302163',
+  [STAFF_ROLE_IDS.coordinator]: '1333145733968302164',
+  [STAFF_ROLE_IDS.senior_coordinator]: '1333145733968302162',
+};
 const STAFF_ROBLOX_ROLE_IDS = new Set(Object.values(STAFF_ROLE_IDS));
 
 const ROLE_CHOICES = [
@@ -47,6 +52,10 @@ function findRoleByName(guild, name) {
 }
 
 function getDiscordRoleIdForRobloxRole(guild, robloxRoleId) {
+  if (DISCORD_COORDINATOR_ROLE_IDS[robloxRoleId]) {
+    return DISCORD_COORDINATOR_ROLE_IDS[robloxRoleId];
+  }
+
   const roleName = ROLE_LABELS[robloxRoleId];
   return roleName ? findRoleByName(guild, roleName)?.id || null : null;
 }

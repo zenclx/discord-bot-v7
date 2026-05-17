@@ -8,47 +8,81 @@ function formatRobloxTierRole(tier, roleId) {
   return `@Tier ${tier} [${rank}+]`;
 }
 
+function buildUpdateEmbed(target, linked, tier, sync) {
+  return new EmbedBuilder()
+    .setColor(0x1f4fd8)
+    .setAuthor({ name: `${target.username} updated`, iconURL: target.displayAvatarURL({ size: 64 }) })
+    .addFields(
+      {
+        name: 'Roles Added',
+        value: sync.skipped ? 'None' : formatRobloxTierRole(tier.tier, sync.targetRoleId),
+        inline: false,
+      },
+      {
+        name: 'Roles Removed',
+        value: sync.removed?.length
+          ? sync.removed.map(roleId => `@${roleId}`).join('\n')
+          : 'None',
+        inline: false,
+      },
+    )
+    .setFooter({ text: `${linked.robloxUsername} (${linked.robloxUserId})` })
+    .setTimestamp();
+}
+
+async function linkAndSync(interaction, target, roblox) {
+  let linked;
+  if (roblox) {
+    linked = await linkRobloxAccount(interaction.client, interaction.guildId, target.id, roblox);
+  } else {
+    const data = db.get();
+    linked = getRobloxLinks(data, interaction.guildId)[target.id];
+    if (!linked) throw new Error('No Roblox account linked. Run `/verify roblox:YourUsername` first.');
+  }
+
+  const data = db.get();
+  const tier = getTierForElo(getPlayerElo(getEloData(data), target.id).elo || 0);
+  const sync = await syncRobloxTierForDiscordUser(interaction.client, interaction.guildId, target.id, tier);
+  return { linked, tier, sync };
+}
+
+const verifyRobloxCommand = {
+  data: new SlashCommandBuilder()
+    .setName('verify')
+    .setDescription('Verify your Roblox account for VP Bot tier syncing')
+    .addStringOption(o => o.setName('roblox').setDescription('Your Roblox username or user ID').setRequired(true)),
+
+  async execute(interaction) {
+    const roblox = interaction.options.getString('roblox');
+    await interaction.deferReply({ flags: 64 });
+
+    try {
+      const { linked, tier, sync } = await linkAndSync(interaction, interaction.user, roblox);
+      await interaction.editReply({ embeds: [buildUpdateEmbed(interaction.user, linked, tier, sync)] });
+    } catch (error) {
+      await interaction.editReply({ content: `Roblox verify failed: ${error.message}` });
+    }
+  },
+};
+
 const robloxLinkCommand = {
   data: new SlashCommandBuilder()
     .setName('update')
     .setDescription('Link or update a player Roblox account and sync their group tier rank')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addUserOption(o => o.setName('user').setDescription('Discord user').setRequired(true))
-    .addStringOption(o => o.setName('roblox').setDescription('Roblox username or user ID').setRequired(true)),
+    .addUserOption(o => o.setName('user').setDescription('Optional Discord user').setRequired(false))
+    .addStringOption(o => o.setName('roblox').setDescription('Optional Roblox username or user ID').setRequired(false)),
 
   async execute(interaction) {
-    const target = interaction.options.getUser('user');
+    const target = interaction.options.getUser('user') || interaction.user;
     const roblox = interaction.options.getString('roblox');
     await interaction.deferReply({ flags: 64 });
 
     try {
-      const linked = await linkRobloxAccount(interaction.client, interaction.guildId, target.id, roblox);
-      const data = db.get();
-      const tier = getTierForElo(getPlayerElo(getEloData(data), target.id).elo || 0);
-      const sync = await syncRobloxTierForDiscordUser(interaction.client, interaction.guildId, target.id, tier);
-      const embed = new EmbedBuilder()
-        .setColor(0x1f4fd8)
-        .setAuthor({ name: `${target.username} updated`, iconURL: target.displayAvatarURL({ size: 64 }) })
-        .addFields(
-          {
-            name: 'Roles Added',
-            value: sync.skipped ? 'None' : formatRobloxTierRole(tier.tier, sync.targetRoleId),
-            inline: false,
-          },
-          {
-            name: 'Roles Removed',
-            value: sync.removed?.length
-              ? sync.removed.map(roleId => `@${roleId}`).join('\n')
-              : 'None',
-            inline: false,
-          },
-        )
-        .setFooter({ text: `${linked.robloxUsername} (${linked.robloxUserId})` })
-        .setTimestamp();
-
-      await interaction.editReply({ embeds: [embed] });
+      const { linked, tier, sync } = await linkAndSync(interaction, target, roblox);
+      await interaction.editReply({ embeds: [buildUpdateEmbed(target, linked, tier, sync)] });
     } catch (error) {
-      await interaction.editReply({ content: `Roblox link failed: ${error.message}` });
+      await interaction.editReply({ content: `Roblox update failed: ${error.message}` });
     }
   },
 };
@@ -119,4 +153,4 @@ const robloxStatusCommand = {
   },
 };
 
-module.exports = { robloxLinkCommand, robloxSyncCommand, robloxStatusCommand };
+module.exports = { verifyRobloxCommand, robloxLinkCommand, robloxSyncCommand, robloxStatusCommand };

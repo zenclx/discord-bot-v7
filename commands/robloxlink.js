@@ -5,8 +5,8 @@ const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_
 
 const robloxLinkCommand = {
   data: new SlashCommandBuilder()
-    .setName('linkroblox')
-    .setDescription('Link a Discord user to a Roblox account for automatic group tier ranks')
+    .setName('update')
+    .setDescription('Link or update a player Roblox account and sync their group tier rank')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName('user').setDescription('Discord user').setRequired(true))
     .addStringOption(o => o.setName('roblox').setDescription('Roblox username or user ID').setRequired(true)),
@@ -24,7 +24,7 @@ const robloxLinkCommand = {
 
       await interaction.editReply({
         content: [
-          `Linked <@${target.id}> to Roblox **${linked.robloxUsername}** (${linked.robloxUserId}).`,
+          `Updated <@${target.id}> Roblox link to **${linked.robloxUsername}** (${linked.robloxUserId}).`,
           sync.skipped ? `Roblox rank sync skipped: ${sync.reason}` : `Synced group ${ROBLOX_GROUP_ID} tier role **${sync.targetRoleId}**.`,
         ].join('\n'),
       });

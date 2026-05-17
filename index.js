@@ -713,14 +713,6 @@ client.on('interactionCreate', async interaction => {
             const logCh = await client.channels.fetch(logChannelId).catch(() => null);
             if (logCh) {
               const bracketAttachment = makeBracketAttachment(match);
-              const bracketSummary = match.bracket.map((br, r) =>
-                br.map((bm, i) => {
-                  const left = bm.teamLabel1 || bm.p1Tag || `<@${bm.p1}>`;
-                  const right = bm.teamLabel2 || bm.p2Tag || (bm.p2 ? `<@${bm.p2}>` : 'BYE');
-                  const reason = bm.resultReason ? ` (${bm.resultReason})` : '';
-                  return `R${r + 1} M${i + 1}: ${left} vs ${right} -> <@${bm.winner}>${reason}`;
-                }).join('\n')
-              ).join('\n');
               const logEmbed = new EmbedBuilder()
                 .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
                 .setColor(0xffd700)
@@ -728,15 +720,13 @@ client.on('interactionCreate', async interaction => {
                 .setImage('attachment://bracket.png')
                 .addFields(
                   { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
-                  { name: 'Bracket Results', value: bracketSummary.slice(0, 1024), inline: false },
                 )
                 .setTimestamp();
 
               await logCh.send({
-                content: match.queue.map(id => `<@${id}>`).join(' '),
                 embeds: [logEmbed],
                 files: [bracketAttachment],
-                allowedMentions: { parse: ['users'] },
+                allowedMentions: { parse: [] },
               });
             }
           } catch {}

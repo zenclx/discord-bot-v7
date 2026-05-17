@@ -338,25 +338,12 @@ async function logMatchResult(client, match, winnerId, loserIds) {
           { name: '🎮 Type', value: match.type.toUpperCase(), inline: true },
         ).setTimestamp();
       embed.addFields({ name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true });
-      if (match.bracket) {
-        const bracketLines = match.bracket.map((round, roundIndex) => {
-          return round.map((m, i) => {
-            const left = m.teamLabel1 || m.p1Tag || `<@${m.p1}>`;
-            const right = m.teamLabel2 || m.p2Tag || (m.p2 ? `<@${m.p2}>` : 'BYE');
-            const winner = m.winner ? `<@${m.winner}>` : 'Pending';
-            const reason = m.resultReason ? ` (${m.resultReason})` : '';
-            return `R${roundIndex + 1} M${i + 1}: ${left} vs ${right} -> ${winner}${reason}`;
-          }).join('\n');
-        }).join('\n');
-        embed.addFields({ name: 'Bracket', value: bracketLines.slice(0, 1024) || 'No bracket data', inline: false });
-      }
+      if (match.bracket) embed.setImage('attachment://bracket.png');
       if (match.prize) embed.addFields({ name: '🎁 Prize', value: match.prize });
-      const playerPing = match.queue.map(id => `<@${id}>`).join(' ');
-
       await ch.send({
-        content: playerPing,
         embeds: [embed],
-        allowedMentions: { parse: ['users'] }
+        files: match.bracket ? [makeBracketAttachment(match)] : [],
+        allowedMentions: { parse: [] }
       });
     }
   } catch (e) { console.error('logMatchResult error:', e.message); }

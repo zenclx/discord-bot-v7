@@ -42,20 +42,41 @@ function getSelectedRoles(interaction) {
   return [...new Set(roles)];
 }
 
-async function syncDiscordStaffRole(interaction, target, robloxRoleIds) {
-  if (![...STAFF_ROBLOX_ROLE_IDS].some(roleId => robloxRoleIds.includes(roleId))) {
-    return { added: false, warning: null };
-  }
+function findRoleByName(guild, name) {
+  return guild.roles.cache.find(role => role.name.toLowerCase() === name.toLowerCase()) || null;
+}
 
+function getDiscordRoleIdForRobloxRole(guild, robloxRoleId) {
+  const roleName = ROLE_LABELS[robloxRoleId];
+  return roleName ? findRoleByName(guild, roleName)?.id || null : null;
+}
+
+function getMappedDiscordRoleIds(guild, robloxRoleIds) {
+  return [...new Set(robloxRoleIds
+    .map(roleId => getDiscordRoleIdForRobloxRole(guild, roleId))
+    .filter(Boolean))];
+}
+
+async function syncDiscordStaffRole(interaction, target, robloxRoleIds) {
   try {
     const member = await interaction.guild.members.fetch(target.id);
-    if (member.roles.cache.has(DISCORD_STAFF_ROLE_ID)) return { added: false, warning: null };
+    const roleIds = getMappedDiscordRoleIds(interaction.guild, robloxRoleIds);
+    if ([...STAFF_ROBLOX_ROLE_IDS].some(roleId => robloxRoleIds.includes(roleId))) {
+      roleIds.push(DISCORD_STAFF_ROLE_ID);
+    }
 
-    await member.roles.add(DISCORD_STAFF_ROLE_ID, 'Roblox staff role added from Discord');
-    return { added: true, warning: null };
+    const added = [];
+    for (const roleId of [...new Set(roleIds)]) {
+      if (!member.roles.cache.has(roleId)) {
+        await member.roles.add(roleId, 'Roblox group role added from Discord');
+        added.push(roleId);
+      }
+    }
+
+    return { added, warning: null };
   } catch (error) {
-    console.error('Discord staff role sync failed:', error.message);
-    return { added: false, warning: 'Could not add Discord staff role. Check the bot role position.' };
+    console.error('Discord group role sync failed:', error.message);
+    return { added: [], warning: 'Could not add Discord role. Check the bot role position.' };
   }
 }
 
@@ -113,8 +134,8 @@ module.exports = {
             inline: false,
           },
           {
-            name: 'Discord Staff Role',
-            value: discordStaff.warning || (discordStaff.added ? `<@&${DISCORD_STAFF_ROLE_ID}>` : 'No change'),
+            name: 'Discord Roles Added',
+            value: discordStaff.warning || (discordStaff.added.length ? discordStaff.added.map(roleId => `<@&${roleId}>`).join('\n') : 'No change'),
             inline: false,
           },
         )

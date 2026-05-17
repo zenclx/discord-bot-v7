@@ -1,11 +1,16 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const db = require('../database');
 const { getTierForElo, getEloData, getPlayerElo, TIERS } = require('./elo');
-const { linkRobloxAccount, syncRobloxTierForDiscordUser, syncRobloxUpdateForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, TIER_RANKS, STAFF_RANKS, ROLE_PREFIXES, PREFIX_PRIORITY } = require('../robloxSync');
+const { linkRobloxAccount, syncRobloxTierForDiscordUser, syncRobloxUpdateForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, EXTRA_ROLE_IDS, ROLE_LABELS, TIER_RANKS, STAFF_RANKS, ROLE_PREFIXES, PREFIX_PRIORITY } = require('../robloxSync');
 
 const VERIFIED_COMPETITOR_ROLE_ID = process.env.VERIFIED_COMPETITOR_ROLE_ID || '';
 const DISCORD_STAFF_ROLE_ID = '1387600871377993820';
 const STAFF_ROBLOX_ROLE_IDS = new Set(Object.values(STAFF_ROLE_IDS));
+const MANAGED_ROBLOX_ROLE_IDS = new Set([
+  ...Object.values(TIER_ROLE_IDS),
+  ...Object.values(STAFF_ROLE_IDS),
+  ...Object.values(EXTRA_ROLE_IDS),
+]);
 
 function formatDiscordTierRole(tier) {
   return `<@&${tier.roleId}>`;
@@ -58,32 +63,60 @@ function hasStaffRobloxRole(sync) {
   return [...STAFF_ROBLOX_ROLE_IDS].some(roleId => roles.has(roleId));
 }
 
+function findRoleByName(guild, name) {
+  return guild.roles.cache.find(role => role.name.toLowerCase() === name.toLowerCase()) || null;
+}
+
+function getDiscordRoleIdForRobloxRole(guild, robloxRoleId) {
+  const tierName = Object.entries(TIER_ROLE_IDS).find(([, roleId]) => roleId === robloxRoleId)?.[0];
+  if (tierName) return TIERS.find(tier => tier.tier === tierName)?.roleId || null;
+
+  if (robloxRoleId === EXTRA_ROLE_IDS.verified_competitor && VERIFIED_COMPETITOR_ROLE_ID) {
+    return VERIFIED_COMPETITOR_ROLE_ID;
+  }
+
+  const roleName = ROLE_LABELS[robloxRoleId];
+  return roleName ? findRoleByName(guild, roleName)?.id || null : null;
+}
+
+function getMappedDiscordRoleIds(guild, robloxRoleIds) {
+  return [...new Set((robloxRoleIds || [])
+    .filter(roleId => MANAGED_ROBLOX_ROLE_IDS.has(roleId))
+    .map(roleId => getDiscordRoleIdForRobloxRole(guild, roleId))
+    .filter(Boolean))];
+}
+
 async function syncDiscordVerifiedRoles(interaction, target, tier, sync) {
-  const result = { added: [], removed: [], warning: null };
+  const result = { added: [], removed: [], synced: [], warning: null };
 
   try {
     const member = await interaction.guild.members.fetch(target.id);
     const tierRoleIds = TIERS.map(t => t.roleId);
     const oldTierRoles = member.roles.cache.filter(role => tierRoleIds.includes(role.id) && role.id !== tier.roleId);
+    const mappedRoleIds = [...new Set([tier.roleId, ...getMappedDiscordRoleIds(interaction.guild, sync.roles)])];
+    if (hasStaffRobloxRole(sync) && DISCORD_STAFF_ROLE_ID) mappedRoleIds.push(DISCORD_STAFF_ROLE_ID);
+    result.synced = [...new Set(mappedRoleIds)];
+
+    const managedRoleIds = getMappedDiscordRoleIds(interaction.guild, [...MANAGED_ROBLOX_ROLE_IDS]);
+    if (DISCORD_STAFF_ROLE_ID) managedRoleIds.push(DISCORD_STAFF_ROLE_ID);
+
+    const oldMappedRoles = member.roles.cache.filter(role => managedRoleIds.includes(role.id) && !result.synced.includes(role.id) && !tierRoleIds.includes(role.id));
 
     if (oldTierRoles.size) {
       await member.roles.remove(oldTierRoles, 'Roblox account verified/updated');
       result.removed.push(...oldTierRoles.map(role => role.id));
     }
 
-    if (!member.roles.cache.has(tier.roleId)) {
-      await member.roles.add(tier.roleId, 'Roblox account verified/updated');
-      result.added.push(tier.roleId);
+    if (oldMappedRoles.size) {
+      await member.roles.remove(oldMappedRoles, 'Roblox group role sync');
+      result.removed.push(...oldMappedRoles.map(role => role.id));
     }
 
-    if (VERIFIED_COMPETITOR_ROLE_ID && !member.roles.cache.has(VERIFIED_COMPETITOR_ROLE_ID)) {
-      await member.roles.add(VERIFIED_COMPETITOR_ROLE_ID, 'Roblox account verified/updated');
-      result.added.push(VERIFIED_COMPETITOR_ROLE_ID);
-    }
-
-    if (hasStaffRobloxRole(sync) && DISCORD_STAFF_ROLE_ID && !member.roles.cache.has(DISCORD_STAFF_ROLE_ID)) {
-      await member.roles.add(DISCORD_STAFF_ROLE_ID, 'Roblox staff role verified/updated');
-      result.added.push(DISCORD_STAFF_ROLE_ID);
+    for (const roleId of result.synced) {
+      if (!member.roles.cache.has(roleId)) {
+        await member.roles.add(roleId, 'Roblox group role sync');
+        result.added.push(roleId);
+      }
     }
   } catch (error) {
     console.error('Discord verified role sync failed:', error.message);
@@ -96,14 +129,7 @@ async function syncDiscordVerifiedRoles(interaction, target, tier, sync) {
 function getDisplayAddedRoles(tier) {
   return [
     formatDiscordTierRole(tier),
-    ...(VERIFIED_COMPETITOR_ROLE_ID ? [formatDiscordRole(VERIFIED_COMPETITOR_ROLE_ID)] : []),
   ];
-}
-
-function getDisplayStaffRole(sync) {
-  return hasStaffRobloxRole(sync)
-    ? [formatDiscordRole(DISCORD_STAFF_ROLE_ID)]
-    : [];
 }
 
 function buildUpdateEmbed(target, linked, tier, sync, discordRoles) {
@@ -118,7 +144,7 @@ function buildUpdateEmbed(target, linked, tier, sync, discordRoles) {
     .addFields(
       {
         name: 'Roles Added',
-        value: sync.skipped ? 'None' : [...getDisplayAddedRoles(tier), ...getDisplayStaffRole(sync)].join('\n'),
+        value: sync.skipped ? 'None' : [...new Set([...(discordRoles?.synced || []).map(formatDiscordRole), ...getDisplayAddedRoles(tier)])].join('\n'),
         inline: false,
       },
       {

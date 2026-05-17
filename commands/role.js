@@ -8,11 +8,7 @@ const {
 } = require('../robloxSync');
 
 const DISCORD_STAFF_ROLE_ID = '1387600871377993820';
-const COORDINATOR_ROBLOX_ROLE_IDS = new Set([
-  STAFF_ROLE_IDS.trial_coordinator,
-  STAFF_ROLE_IDS.coordinator,
-  STAFF_ROLE_IDS.senior_coordinator,
-]);
+const STAFF_ROBLOX_ROLE_IDS = new Set(Object.values(STAFF_ROLE_IDS));
 
 const ROLE_CHOICES = [
   { name: 'Tier 1', value: TIER_ROLE_IDS.I },
@@ -47,7 +43,7 @@ function getSelectedRoles(interaction) {
 }
 
 async function syncDiscordStaffRole(interaction, target, robloxRoleIds) {
-  if (![...COORDINATOR_ROBLOX_ROLE_IDS].some(roleId => robloxRoleIds.includes(roleId))) {
+  if (![...STAFF_ROBLOX_ROLE_IDS].some(roleId => robloxRoleIds.includes(roleId))) {
     return { added: false, warning: null };
   }
 
@@ -55,7 +51,7 @@ async function syncDiscordStaffRole(interaction, target, robloxRoleIds) {
     const member = await interaction.guild.members.fetch(target.id);
     if (member.roles.cache.has(DISCORD_STAFF_ROLE_ID)) return { added: false, warning: null };
 
-    await member.roles.add(DISCORD_STAFF_ROLE_ID, 'Roblox coordinator role added from Discord');
+    await member.roles.add(DISCORD_STAFF_ROLE_ID, 'Roblox staff role added from Discord');
     return { added: true, warning: null };
   } catch (error) {
     console.error('Discord staff role sync failed:', error.message);

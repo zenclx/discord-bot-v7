@@ -177,29 +177,53 @@ const robloxLinkCommand = {
   },
 };
 
-const forceUpdateCommand = {
+const forceUpdateAllCommand = {
   data: new SlashCommandBuilder()
-    .setName('forceupdate')
-    .setDescription('Force-sync a player Roblox tier, Discord roles, and nickname')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addUserOption(o => o.setName('user').setDescription('Discord user to force update').setRequired(true))
-    .addStringOption(o => o.setName('roblox').setDescription('Optional Roblox username or user ID to link first').setRequired(false)),
+    .setName('forceupdateall')
+    .setDescription('Force-sync every linked player Roblox tier, Discord roles, and nickname')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
-    const target = interaction.options.getUser('user');
-    const roblox = interaction.options.getString('roblox');
     await interaction.deferReply({ flags: 64 });
 
     if (!canManageRobloxLinks(interaction)) {
-      return interaction.editReply({ content: 'Only staff can force update players.' });
+      return interaction.editReply({ content: 'Only staff can force update all players.' });
     }
 
-    try {
-      const { linked, tier, sync, discordRoles } = await linkAndSync(interaction, target, roblox);
-      await interaction.editReply({ embeds: [buildUpdateEmbed(target, linked, tier, sync, discordRoles)] });
-    } catch (error) {
-      await interaction.editReply({ content: `Force update failed: ${error.message}` });
+    const data = db.get();
+    const links = getRobloxLinks(data, interaction.guildId);
+    const userIds = Object.keys(links);
+
+    if (!userIds.length) {
+      return interaction.editReply({ content: 'No linked Roblox users found.' });
     }
+
+    const results = [];
+    let updated = 0;
+    let failed = 0;
+
+    for (const discordUserId of userIds) {
+      try {
+        const target = await interaction.client.users.fetch(discordUserId);
+        const { tier, sync } = await linkAndSync(interaction, target, null);
+        updated += 1;
+        results.push(sync.skipped
+          ? `<@${discordUserId}> skipped: ${sync.reason}`
+          : `<@${discordUserId}> -> Tier ${tier.tier}`);
+      } catch (error) {
+        failed += 1;
+        results.push(`<@${discordUserId}> failed: ${error.message}`);
+      }
+    }
+
+    await interaction.editReply({
+      content: [
+        `Force update complete: ${updated} updated, ${failed} failed.`,
+        '',
+        results.slice(0, 20).join('\n'),
+        results.length > 20 ? `...and ${results.length - 20} more.` : '',
+      ].filter(Boolean).join('\n').slice(0, 1900),
+    });
   },
 };
 
@@ -270,4 +294,4 @@ const robloxStatusCommand = {
   },
 };
 
-module.exports = { verifyRobloxCommand, robloxLinkCommand, forceUpdateCommand, robloxSyncCommand, robloxStatusCommand };
+module.exports = { verifyRobloxCommand, robloxLinkCommand, forceUpdateAllCommand, robloxSyncCommand, robloxStatusCommand };

@@ -46,9 +46,20 @@ function normalizeRoleId(role) {
 }
 
 function getMembershipId(membership) {
-  const source = membership?.path || membership?.name || membership?.id;
-  if (!source) return null;
-  return String(source).split('/').pop();
+  const candidates = [
+    membership?.id,
+    membership?.membershipId,
+    membership?.groupMembershipId,
+    membership?.path,
+    membership?.name,
+  ].filter(Boolean);
+
+  for (const source of candidates) {
+    const id = String(source).split('/').pop();
+    if (id && id !== '-') return id;
+  }
+
+  return null;
 }
 
 function getMembershipRoles(membership) {
@@ -111,6 +122,14 @@ async function assignRole(membershipId, roleId) {
   }
 }
 
+async function setMembershipRoles(membershipId, roleIds) {
+  const roles = roleIds.map(getRoleResource);
+  return robloxFetch(`/cloud/v2/groups/${ROBLOX_GROUP_ID}/memberships/${membershipId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ roles }),
+  });
+}
+
 async function unassignRole(membershipId, roleId) {
   try {
     return await robloxFetch(`/cloud/v2/groups/${ROBLOX_GROUP_ID}/memberships/${membershipId}:unassignRole`, {
@@ -137,21 +156,36 @@ async function syncRobloxTierForDiscordUser(client, guildId, discordUserId, tier
   if (!membership) throw new Error(`${link.robloxUsername || link.robloxUserId} is not in Roblox group ${ROBLOX_GROUP_ID}.`);
 
   const membershipId = getMembershipId(membership);
-  if (!membershipId) throw new Error('Could not read Roblox group membership ID.');
+  if (!membershipId) {
+    console.error('Roblox membership missing usable id:', JSON.stringify(membership));
+    throw new Error('Could not read Roblox group membership ID.');
+  }
 
   const currentRoles = getMembershipRoles(membership);
   const tierRoles = Object.values(TIER_ROLE_IDS);
+  const staffRoleIds = Object.values(STAFF_ROLE_IDS);
+  const preservedStaffRoles = currentRoles.filter(roleId => staffRoleIds.includes(roleId));
+  const nonTierRoles = currentRoles.filter(roleId => !tierRoles.includes(roleId));
   const removed = [];
+  const desiredRoles = [...new Set([...nonTierRoles, ...preservedStaffRoles, targetRoleId])];
 
-  for (const roleId of tierRoles) {
-    if (roleId !== targetRoleId && currentRoles.includes(roleId)) {
-      await unassignRole(membershipId, roleId);
-      removed.push(roleId);
+  try {
+    for (const roleId of tierRoles) {
+      if (roleId !== targetRoleId && currentRoles.includes(roleId)) {
+        await unassignRole(membershipId, roleId);
+        removed.push(roleId);
+      }
     }
-  }
 
-  if (!currentRoles.includes(targetRoleId)) {
-    await assignRole(membershipId, targetRoleId);
+    if (!currentRoles.includes(targetRoleId)) {
+      await assignRole(membershipId, targetRoleId);
+    }
+  } catch (error) {
+    console.warn(`assign/unassign role failed for membership ${membershipId}, trying PATCH fallback: ${error.message}`);
+    await setMembershipRoles(membershipId, desiredRoles);
+    for (const roleId of tierRoles) {
+      if (roleId !== targetRoleId && currentRoles.includes(roleId)) removed.push(roleId);
+    }
   }
 
   const freshData = db.get();

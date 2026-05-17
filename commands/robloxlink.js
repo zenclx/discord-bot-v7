@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('../database');
 const { getTierForElo, getEloData, getPlayerElo } = require('./elo');
-const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS } = require('../robloxSync');
+const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, TIER_RANKS, STAFF_RANKS } = require('../robloxSync');
 
 const robloxLinkCommand = {
   data: new SlashCommandBuilder()
@@ -81,8 +81,8 @@ const robloxStatusCommand = {
     const target = interaction.options.getUser('user') || interaction.user;
     const data = db.get();
     const link = getRobloxLinks(data, interaction.guildId)[target.id];
-    const tierLines = Object.entries(TIER_ROLE_IDS).map(([tier, roleId]) => `Tier ${tier}: ${roleId}`).join('\n');
-    const staffLines = Object.entries(STAFF_ROLE_IDS).map(([name, roleId]) => `${name}: ${roleId}`).join('\n');
+    const tierLines = Object.entries(TIER_ROLE_IDS).map(([tier, roleId]) => `Tier ${tier}: rank ${TIER_RANKS[tier]} / role ${roleId}`).join('\n');
+    const staffLines = Object.entries(STAFF_ROLE_IDS).map(([name, roleId]) => `${name}: rank ${STAFF_RANKS[name]} / role ${roleId}`).join('\n');
 
     await interaction.reply({
       content: [

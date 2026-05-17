@@ -5,6 +5,23 @@ const { sendStaffAuditLog } = require('./auditLog');
 const ROBLOX_GROUP_ID = '301637944';
 
 const TIER_ROLE_IDS = {
+  V: '489400211',
+  IV: '488754179',
+  III: '489736121',
+  II: '489424158',
+  I: '488714133',
+};
+
+const STAFF_ROLE_IDS = {
+  trial_coordinator: '494852007',
+  coordinator: '489538201',
+  senior_coordinator: '489538202',
+  vp_moderator: '495274003',
+  vp_senior_mod: '489424159',
+  vp_admin: '494910003',
+};
+
+const TIER_RANKS = {
   V: '2',
   IV: '3',
   III: '4',
@@ -12,7 +29,7 @@ const TIER_ROLE_IDS = {
   I: '10',
 };
 
-const STAFF_ROLE_IDS = {
+const STAFF_RANKS = {
   trial_coordinator: '11',
   coordinator: '12',
   senior_coordinator: '13',
@@ -230,6 +247,8 @@ module.exports = {
   ROBLOX_GROUP_ID,
   TIER_ROLE_IDS,
   STAFF_ROLE_IDS,
+  TIER_RANKS,
+  STAFF_RANKS,
   getRobloxLinks,
   lookupRobloxUser,
   linkRobloxAccount,

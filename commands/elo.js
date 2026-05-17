@@ -300,8 +300,8 @@ function buildMatchEloSummary(match, eloData) {
   players.sort((a, b) => b.delta - a.delta || b.current - a.current);
 
   return players.map((p, i) => {
-    const sign = p.delta >= 0 ? '+' : '';
-    return `**${i + 1}.** <@${p.userId}> - ${sign}${p.delta} ELO (${p.starting} -> ${p.current}) - ${p.wins}W/${p.losses}L`;
+    const delta = p.delta > 0 ? `+${p.delta}` : `${p.delta}`;
+    return `**${i + 1}.** <@${p.userId}> **${delta} ELO** (${p.starting} -> ${p.current}) ${p.wins}W/${p.losses}L`;
   }).join('\n') || 'No ELO changes recorded.';
 }
 

@@ -1,7 +1,12 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const db = require('../database');
 const { getTierForElo, getEloData, getPlayerElo } = require('./elo');
 const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_GROUP_ID, TIER_ROLE_IDS, STAFF_ROLE_IDS, TIER_RANKS, STAFF_RANKS } = require('../robloxSync');
+
+function formatRobloxTierRole(tier, roleId) {
+  const rank = TIER_RANKS[tier] || '?';
+  return `Tier ${tier} [${rank}+]`;
+}
 
 const robloxLinkCommand = {
   data: new SlashCommandBuilder()
@@ -21,13 +26,27 @@ const robloxLinkCommand = {
       const data = db.get();
       const tier = getTierForElo(getPlayerElo(getEloData(data), target.id).elo || 0);
       const sync = await syncRobloxTierForDiscordUser(interaction.client, interaction.guildId, target.id, tier);
+      const embed = new EmbedBuilder()
+        .setColor(0x00c781)
+        .setAuthor({ name: `${target.username} updated`, iconURL: target.displayAvatarURL({ size: 64 }) })
+        .addFields(
+          {
+            name: 'Roles Added',
+            value: sync.skipped ? 'None' : `@${formatRobloxTierRole(tier.tier, sync.targetRoleId)}`,
+            inline: false,
+          },
+          {
+            name: 'Roles Removed',
+            value: sync.removed?.length
+              ? sync.removed.map(roleId => `@${roleId}`).join('\n')
+              : 'None',
+            inline: false,
+          },
+        )
+        .setFooter({ text: `${linked.robloxUsername} (${linked.robloxUserId})` })
+        .setTimestamp();
 
-      await interaction.editReply({
-        content: [
-          `Updated <@${target.id}> Roblox link to **${linked.robloxUsername}** (${linked.robloxUserId}).`,
-          sync.skipped ? `Roblox rank sync skipped: ${sync.reason}` : `Synced group ${ROBLOX_GROUP_ID} tier role **${sync.targetRoleId}**.`,
-        ].join('\n'),
-      });
+      await interaction.editReply({ embeds: [embed] });
     } catch (error) {
       await interaction.editReply({ content: `Roblox link failed: ${error.message}` });
     }

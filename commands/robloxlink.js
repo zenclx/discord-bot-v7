@@ -5,7 +5,7 @@ const { linkRobloxAccount, syncRobloxTierForDiscordUser, getRobloxLinks, ROBLOX_
 
 function formatRobloxTierRole(tier, roleId) {
   const rank = TIER_RANKS[tier] || '?';
-  return `Tier ${tier} [${rank}+]`;
+  return `@Tier ${tier} [${rank}+]`;
 }
 
 const robloxLinkCommand = {
@@ -27,12 +27,12 @@ const robloxLinkCommand = {
       const tier = getTierForElo(getPlayerElo(getEloData(data), target.id).elo || 0);
       const sync = await syncRobloxTierForDiscordUser(interaction.client, interaction.guildId, target.id, tier);
       const embed = new EmbedBuilder()
-        .setColor(0x00c781)
+        .setColor(0x1f4fd8)
         .setAuthor({ name: `${target.username} updated`, iconURL: target.displayAvatarURL({ size: 64 }) })
         .addFields(
           {
             name: 'Roles Added',
-            value: sync.skipped ? 'None' : `@${formatRobloxTierRole(tier.tier, sync.targetRoleId)}`,
+            value: sync.skipped ? 'None' : formatRobloxTierRole(tier.tier, sync.targetRoleId),
             inline: false,
           },
           {

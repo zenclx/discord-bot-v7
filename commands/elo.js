@@ -460,25 +460,38 @@ const eloAdjustCommand = {
     .addIntegerOption(o => o.setName('amount').setDescription('Amount to add (negative to subtract)').setRequired(true)),
 
   async execute(interaction) {
+    await interaction.deferReply({ flags: 64 });
+
     const target = interaction.options.getUser('user');
     const amount = interaction.options.getInteger('amount');
-    const data = db.get();
-    const eloData = getEloData(data);
-    const result = applyEloChange(eloData, target.id, amount);
-    db.set(data);
-    await saveToDiscord(interaction.client);
-    await updateEloLeaderboard(interaction.client, interaction.guildId);
-    await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Adjusted', [
-      { name: 'Player', value: `<@${target.id}>`, inline: true },
-      { name: 'Change', value: `${amount >= 0 ? '+' : ''}${amount}`, inline: true },
-      { name: 'Result', value: `${result.oldElo} -> ${result.newElo}`, inline: true },
-    ], interaction.user.id);
+
+    let result;
+    try {
+      const data = db.get();
+      const eloData = getEloData(data);
+      result = applyEloChange(eloData, target.id, amount);
+      db.set(data);
+      await saveToDiscord(interaction.client);
+      await updateEloLeaderboard(interaction.client, interaction.guildId);
+      await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Adjusted', [
+        { name: 'Player', value: `<@${target.id}>`, inline: true },
+        { name: 'Change', value: `${amount >= 0 ? '+' : ''}${amount}`, inline: true },
+        { name: 'Result', value: `${result.oldElo} -> ${result.newElo}`, inline: true },
+      ], interaction.user.id);
+    } catch (error) {
+      console.error('eloadjust failed:', error.message);
+      return interaction.editReply({ content: `Could not adjust ELO: ${error.message}` });
+    }
+
     try {
       const guild = await interaction.client.guilds.fetch(interaction.guildId);
       await syncRoles(guild, target.id, getTierForElo(result.newElo));
-    } catch {}
+    } catch (error) {
+      console.error('eloadjust role sync failed:', error.message);
+    }
+
     const sign = amount >= 0 ? '+' : '';
-    await interaction.reply({ content: `Adjusted <@${target.id}>'s ELO by **${sign}${amount}**: \`${result.oldElo}\` -> \`${result.newElo}\` (Tier ${getTierForElo(result.newElo).tier})`, flags: 64 });
+    await interaction.editReply({ content: `Adjusted <@${target.id}>'s ELO by **${sign}${amount}**: \`${result.oldElo}\` -> \`${result.newElo}\` (Tier ${getTierForElo(result.newElo).tier})` });
   },
 };
 

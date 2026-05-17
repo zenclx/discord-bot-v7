@@ -38,6 +38,25 @@ const STAFF_RANKS = {
   vp_admin: '16',
 };
 
+const EXTRA_ROLE_IDS = {
+  verified_competitor: '494290012',
+};
+
+const ROLE_LABELS = {
+  [TIER_ROLE_IDS.I]: 'Tier 1',
+  [TIER_ROLE_IDS.II]: 'Tier 2',
+  [TIER_ROLE_IDS.III]: 'Tier 3',
+  [TIER_ROLE_IDS.IV]: 'Tier 4',
+  [TIER_ROLE_IDS.V]: 'Tier 5',
+  [STAFF_ROLE_IDS.trial_coordinator]: 'Trial Coordinator',
+  [STAFF_ROLE_IDS.coordinator]: 'Coordinator',
+  [STAFF_ROLE_IDS.senior_coordinator]: 'Senior Coordinator',
+  [STAFF_ROLE_IDS.vp_moderator]: 'VP Moderator',
+  [STAFF_ROLE_IDS.vp_senior_mod]: 'VP Senior Mod',
+  [STAFF_ROLE_IDS.vp_admin]: 'VP Admin',
+  [EXTRA_ROLE_IDS.verified_competitor]: 'Verified Competitor',
+};
+
 const ROLE_PREFIXES = {
   [TIER_ROLE_IDS.I]: '[T1]',
   [TIER_ROLE_IDS.II]: '[T2]',
@@ -248,6 +267,73 @@ async function syncRobloxTierForDiscordUser(client, guildId, discordUserId, tier
   return { skipped: false, robloxUserId: link.robloxUserId, robloxUsername: link.robloxUsername, targetRoleId, removed, roles: desiredRoles };
 }
 
+async function addRobloxRolesForDiscordUser(client, guildId, discordUserId, roleIds, actorId = null) {
+  const data = db.get();
+  const link = getRobloxLinks(data, guildId)[discordUserId];
+  if (!link?.robloxUserId) throw new Error('No linked Roblox account.');
+
+  const uniqueRoleIds = [...new Set(roleIds.map(String))].filter(Boolean);
+  if (!uniqueRoleIds.length) throw new Error('No Roblox roles selected.');
+
+  const knownRoleIds = new Set([
+    ...Object.values(TIER_ROLE_IDS),
+    ...Object.values(STAFF_ROLE_IDS),
+    ...Object.values(EXTRA_ROLE_IDS),
+  ]);
+  const invalidRoleIds = uniqueRoleIds.filter(roleId => !knownRoleIds.has(roleId));
+  if (invalidRoleIds.length) throw new Error(`Unknown Roblox role ID: ${invalidRoleIds.join(', ')}`);
+
+  const tierRoleIds = Object.values(TIER_ROLE_IDS);
+  const selectedTierRoles = uniqueRoleIds.filter(roleId => tierRoleIds.includes(roleId));
+  if (selectedTierRoles.length > 1) throw new Error('Choose only one tier role at a time.');
+
+  const membership = await getGroupMembership(link.robloxUserId);
+  if (!membership) throw new Error(`${link.robloxUsername || link.robloxUserId} is not in Roblox group ${ROBLOX_GROUP_ID}.`);
+
+  const membershipId = getMembershipId(membership);
+  if (!membershipId) {
+    console.error('Roblox membership missing usable id:', JSON.stringify(membership));
+    throw new Error('Could not read Roblox group membership ID.');
+  }
+
+  const currentRoles = getMembershipRoles(membership);
+  const baseRoles = selectedTierRoles.length
+    ? currentRoles.filter(roleId => !tierRoleIds.includes(roleId))
+    : currentRoles;
+  const desiredRoles = [...new Set([...baseRoles, ...uniqueRoleIds])];
+  const added = uniqueRoleIds.filter(roleId => !currentRoles.includes(roleId));
+  const removed = currentRoles.filter(roleId => !desiredRoles.includes(roleId));
+
+  try {
+    for (const roleId of removed) {
+      await unassignRole(membershipId, roleId);
+    }
+
+    for (const roleId of added) {
+      await assignRole(membershipId, roleId);
+    }
+  } catch (error) {
+    console.warn(`manual Roblox role assign failed for membership ${membershipId}, trying PATCH fallback: ${error.message}`);
+    await setMembershipRoles(membershipId, desiredRoles);
+  }
+
+  await sendStaffAuditLog(client, guildId, 'Roblox Roles Added', [
+    { name: 'Discord User', value: `<@${discordUserId}>`, inline: true },
+    { name: 'Roblox User', value: `${link.robloxUsername || link.robloxUserId} (${link.robloxUserId})`, inline: true },
+    { name: 'Staff Member', value: actorId ? `<@${actorId}>` : 'Unknown', inline: true },
+    { name: 'Roles', value: uniqueRoleIds.map(roleId => ROLE_LABELS[roleId] || roleId).join('\n'), inline: false },
+  ]);
+
+  return {
+    robloxUserId: link.robloxUserId,
+    robloxUsername: link.robloxUsername,
+    roles: desiredRoles,
+    added,
+    removed,
+    requested: uniqueRoleIds,
+  };
+}
+
 async function linkRobloxAccount(client, guildId, discordUserId, robloxUser) {
   const resolved = /^\d+$/.test(String(robloxUser))
     ? { robloxUserId: String(robloxUser), robloxUsername: String(robloxUser) }
@@ -269,6 +355,8 @@ module.exports = {
   ROBLOX_GROUP_ID,
   TIER_ROLE_IDS,
   STAFF_ROLE_IDS,
+  EXTRA_ROLE_IDS,
+  ROLE_LABELS,
   TIER_RANKS,
   STAFF_RANKS,
   ROLE_PREFIXES,
@@ -277,4 +365,5 @@ module.exports = {
   lookupRobloxUser,
   linkRobloxAccount,
   syncRobloxTierForDiscordUser,
+  addRobloxRolesForDiscordUser,
 };

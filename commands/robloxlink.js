@@ -177,6 +177,32 @@ const robloxLinkCommand = {
   },
 };
 
+const forceUpdateCommand = {
+  data: new SlashCommandBuilder()
+    .setName('forceupdate')
+    .setDescription('Force-sync a player Roblox tier, Discord roles, and nickname')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addUserOption(o => o.setName('user').setDescription('Discord user to force update').setRequired(true))
+    .addStringOption(o => o.setName('roblox').setDescription('Optional Roblox username or user ID to link first').setRequired(false)),
+
+  async execute(interaction) {
+    const target = interaction.options.getUser('user');
+    const roblox = interaction.options.getString('roblox');
+    await interaction.deferReply({ flags: 64 });
+
+    if (!canManageRobloxLinks(interaction)) {
+      return interaction.editReply({ content: 'Only staff can force update players.' });
+    }
+
+    try {
+      const { linked, tier, sync, discordRoles } = await linkAndSync(interaction, target, roblox);
+      await interaction.editReply({ embeds: [buildUpdateEmbed(target, linked, tier, sync, discordRoles)] });
+    } catch (error) {
+      await interaction.editReply({ content: `Force update failed: ${error.message}` });
+    }
+  },
+};
+
 const robloxSyncCommand = {
   data: new SlashCommandBuilder()
     .setName('syncroblox')
@@ -244,4 +270,4 @@ const robloxStatusCommand = {
   },
 };
 
-module.exports = { verifyRobloxCommand, robloxLinkCommand, robloxSyncCommand, robloxStatusCommand };
+module.exports = { verifyRobloxCommand, robloxLinkCommand, forceUpdateCommand, robloxSyncCommand, robloxStatusCommand };

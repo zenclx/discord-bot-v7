@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('disc
 const db = require('../database');
 const { sendStaffAuditLog } = require('../auditLog');
 const { saveToDiscord } = require('../discordBackup');
+const { syncRobloxTierForDiscordUser } = require('../robloxSync');
 
 const TIER_ROLES = {
   I: '1394141603962163373',
@@ -106,6 +107,12 @@ async function syncRoles(guild, userId, newTier) {
     await member.roles.add(newTier.roleId);
   } catch (e) {
     console.error(`Failed to sync ELO role for ${userId}:`, e.message);
+  }
+
+  try {
+    await syncRobloxTierForDiscordUser(guild.client, guild.id, userId, newTier);
+  } catch (e) {
+    console.error(`Failed to sync Roblox tier for ${userId}:`, e.message);
   }
 }
 

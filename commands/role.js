@@ -92,7 +92,7 @@ async function syncDiscordStaffRole(interaction, target, robloxRoleIds) {
 const builder = new SlashCommandBuilder()
   .setName('role')
   .setDescription('Add one or more Roblox group roles to a linked user')
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addUserOption(option => option
     .setName('user')
     .setDescription('Discord user linked to the Roblox account')
@@ -109,6 +109,10 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.deferReply({ flags: 64 });
+
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+      return interaction.editReply({ content: 'Only administrators can use `/role`.' });
+    }
 
     const target = interaction.options.getUser('user');
     const roles = getSelectedRoles(interaction);

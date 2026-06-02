@@ -700,7 +700,9 @@ client.on('interactionCreate', async interaction => {
             const ch = await client.channels.fetch(match.privateChannelId);
             const { EmbedBuilder } = require('discord.js');
             const champEntry = bracketRound.find(m => m.winner === champion);
-            const champTag = champEntry?.p1Tag || champEntry?.p2Tag || '';
+            const champTag = champEntry
+              ? (champEntry.winner === champEntry.p2 ? champEntry.p2Tag : champEntry.p1Tag) || ''
+              : '';
             const eloData = getEloData(db.get());
             const eloSummary = buildMatchEloSummary(match, eloData);
             const finalEmbed = new EmbedBuilder()

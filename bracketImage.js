@@ -225,7 +225,10 @@ function buildBracketImage(bracket, currentRound, matchDisplayNames) {
     const baseSpacing = SLOT_H * 2 + PAIR_GAP + MATCH_GAP;
     const spacing = baseSpacing * Math.pow(2, rounds - 1);
     const ry = PADDING + 30 + spacing / 2 - baseSpacing / 2 + SLOT_H + PAIR_GAP / 2 - SLOT_H / 2;
-    const champName = matchDisplayNames?.[rounds - 1]?.[0]?.winner || champion.p1Tag || champion.p1?.slice(-4) || '???';
+    const champName = matchDisplayNames?.[rounds - 1]?.[0]?.winner
+      || (champion.winner === champion.p2 ? champion.p2Tag : champion.p1Tag)
+      || champion.winner?.slice(-4)
+      || '???';
 
     ctx.fillStyle = '#faa61a';
     ctx.font = 'bold 12px sans-serif';

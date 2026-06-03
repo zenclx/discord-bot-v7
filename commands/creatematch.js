@@ -151,6 +151,44 @@ function makeBracketAttachment(match) {
   return new AttachmentBuilder(buf, { name: 'bracket.png' });
 }
 
+function buildSeedPreviewEmbed(match) {
+  return new EmbedBuilder()
+    .setTitle(`Bracket Seeding Preview - Match #${match.matchNum ?? '?'}`)
+    .setColor(DARK_BLUE)
+    .setDescription('Review the seeded bracket. Confirm to start voting, or reshuffle before the match begins.')
+    .setImage('attachment://bracket.png')
+    .setFooter({ text: `Match ID: ${match.id}` })
+    .setTimestamp();
+}
+
+function makeSeedPreviewRows(matchId) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`seed_confirm_${matchId}`).setLabel('Confirm Bracket').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`seed_reshuffle_${matchId}`).setLabel('Reshuffle').setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+}
+
+async function postSeedPreview(client, match) {
+  const channel = await client.channels.fetch(match.privateChannelId).catch(() => null);
+  if (!channel) return null;
+  const payload = {
+    embeds: [buildSeedPreviewEmbed(match)],
+    components: makeSeedPreviewRows(match.id),
+    files: [makeBracketAttachment(match)],
+    allowedMentions: { parse: [] },
+  };
+  if (match.seedPreviewMessageId) {
+    const msg = await channel.messages.fetch(match.seedPreviewMessageId).catch(() => null);
+    if (msg) {
+      await msg.edit(payload);
+      return msg;
+    }
+  }
+  return channel.send(payload);
+}
+
 // ── Bracket generation ────────────────────────────────────────────────────────
 function getSeededPlayers(players, eloData) {
   return [...players].sort((a, b) => {
@@ -171,8 +209,17 @@ function orderBySeeds(items) {
   return ordered;
 }
 
-function generateBracket(players, eloData) {
-  const shuffled = orderBySeeds(getSeededPlayers(players, eloData));
+function shuffleItems(items) {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function generateBracket(players, eloData, randomize = false) {
+  const shuffled = randomize ? shuffleItems(players) : orderBySeeds(getSeededPlayers(players, eloData));
   const round = [];
   for (let i = 0; i + 1 < shuffled.length; i += 2) {
     round.push({ p1: shuffled[i], p2: shuffled[i + 1], winner: null, p1Tag: null, p2Tag: null, bye: false });
@@ -183,8 +230,8 @@ function generateBracket(players, eloData) {
   return [round];
 }
 
-function pairIntoTeams(players, eloData) {
-  const seeded = getSeededPlayers(players, eloData);
+function pairIntoTeams(players, eloData, randomize = false) {
+  const seeded = randomize ? shuffleItems(players) : getSeededPlayers(players, eloData);
   const teams = [];
   while (seeded.length) {
     const high = seeded.shift();
@@ -199,8 +246,8 @@ function getTeamElo(team, eloData) {
   return team.reduce((total, id) => total + (getPlayerElo(eloData, id).elo || 0), 0) / team.length;
 }
 
-function generateTeamBracket(teams, eloData) {
-  const seededTeams = orderBySeeds([...teams].sort((a, b) => getTeamElo(b, eloData) - getTeamElo(a, eloData)));
+function generateTeamBracket(teams, eloData, randomize = false) {
+  const seededTeams = randomize ? shuffleItems(teams) : orderBySeeds([...teams].sort((a, b) => getTeamElo(b, eloData) - getTeamElo(a, eloData)));
   const round = [];
   for (let i = 0; i + 1 < seededTeams.length; i += 2) {
     round.push({
@@ -218,6 +265,16 @@ function generateTeamBracket(teams, eloData) {
     round.push({ p1: t[0], p2: null, winner: t[0], bye: true, byePlayer: true, p1Tag: `Team ${String.fromCharCode(65 + seededTeams.length - 1)}`, teamA: t });
   }
   return [round];
+}
+
+function generateMatchBracket(match, eloData, randomize = false) {
+  if (match.type === '2v2' && !match.testMatch) {
+    match.teams = pairIntoTeams(match.queue, eloData, randomize);
+    match.bracket = generateTeamBracket(match.teams, eloData, randomize);
+  } else {
+    match.bracket = generateBracket(match.queue, eloData, randomize);
+  }
+  match.currentRound = 0;
 }
 
 function buildNextRound(currentRound) {
@@ -688,11 +745,70 @@ async function startCheckIn(client, matchId) {
   timers.set(matchId, { ...(timers.get(matchId) || {}), checkinTimer: timer, checkinInterval: interval });
 }
 
+async function startVotesFromSeedPreview(client, matchId) {
+  const data = db.get();
+  const match = data.matches?.[matchId];
+  if (!match || match.status !== 'seeding') return false;
+
+  match.status = 'bracket';
+  match.seedPreviewConfirmed = true;
+  data.matches[matchId] = match;
+  db.set(data);
+  saveToDiscord(client).catch(error => console.error('saveToDiscord seed confirm failed:', error.message));
+
+  try {
+    const ch = await client.channels.fetch(match.privateChannelId);
+    const msg = await ch.messages.fetch(match.seedPreviewMessageId);
+    await msg.edit({ components: [] });
+  } catch {}
+
+  await postBo3Vote(client, match);
+  await postRegionVote(client, match);
+
+  const freshData = db.get();
+  const freshMatch = freshData.matches[matchId];
+  await postOrUpdateBracket(client, freshMatch);
+
+  for (let i = 0; i < freshMatch.bracket[0].length; i++) {
+    const bm = freshMatch.bracket[0][i];
+    if (!bm.bye && bm.p1 && bm.p2) await postPredictionPoll(client, freshMatch, bm, 0, i);
+  }
+
+  for (let i = 0; i < freshMatch.bracket[0].length; i++) {
+    if (!freshMatch.bracket[0][i].bye) scheduleMatchReminder(client, freshMatch, matchId, i, 0);
+  }
+
+  return true;
+}
+
+async function reshuffleSeedPreview(client, matchId) {
+  const data = db.get();
+  const match = data.matches?.[matchId];
+  if (!match || match.status !== 'seeding') return false;
+
+  const eloData = getEloData(data);
+  generateMatchBracket(match, eloData, true);
+  try {
+    const guild = await client.guilds.fetch(match.guildId);
+    if (match.type === '1v1') await fetchDisplayNames(guild, match.bracket[0]);
+  } catch {}
+  match.seedPreviewReshuffles = (match.seedPreviewReshuffles || 0) + 1;
+  data.matches[matchId] = match;
+  db.set(data);
+  saveToDiscord(client).catch(error => console.error('saveToDiscord seed reshuffle failed:', error.message));
+  const msg = await postSeedPreview(client, match);
+  if (msg) match.seedPreviewMessageId = msg.id;
+  data.matches[matchId] = match;
+  db.set(data);
+  return true;
+}
+
 async function startBracket(client, matchId) {
   const data = db.get();
   const match = data.matches[matchId];
   if (!match) return;
   if (match.status === 'queuing') return startCheckIn(client, matchId);
+  if (match.status === 'seeding') return startVotesFromSeedPreview(client, matchId);
   if (match.status !== 'checking') return;
 
   const minPlayers = getMinPlayers(match);
@@ -761,13 +877,7 @@ async function startBracket(client, matchId) {
     } catch {}
   }
 
-  if (match.type === '2v2' && !match.testMatch) {
-    match.teams = pairIntoTeams(match.queue, eloData);
-    match.bracket = generateTeamBracket(match.teams, eloData);
-  } else {
-    match.bracket = generateBracket(match.queue, eloData);
-  }
-  match.currentRound = 0;
+  generateMatchBracket(match, eloData);
   match.eloStart = {};
   for (const playerId of match.queue) {
     match.eloStart[playerId] = getPlayerElo(eloData, playerId).elo;
@@ -791,6 +901,18 @@ async function startBracket(client, matchId) {
   data.matches[matchId] = match;
   db.set(data);
   saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket channel failed:', error.message));
+
+  match.status = 'seeding';
+  data.matches[matchId] = match;
+  db.set(data);
+  saveToDiscord(client).catch(error => console.error('saveToDiscord seed preview failed:', error.message));
+
+  const previewMessage = await postSeedPreview(client, match);
+  if (previewMessage) {
+    match.seedPreviewMessageId = previewMessage.id;
+    data.matches[matchId] = match;
+    db.set(data);
+  }
 
   (async () => {
     for (const playerId of match.queue) {
@@ -823,27 +945,6 @@ async function startBracket(client, matchId) {
       });
     } catch {}
   })().catch(error => console.error('match start notification failed:', error.message));
-
-  // ── ORDER: 1) Bo3 vote (60s) → 2) Region vote (60s) → 3) Bracket ──────────
-  await postBo3Vote(client, match);
-  await postRegionVote(client, match);
-
-  // Re-fetch match after votes to get bo3Mode + region saved
-  const freshData = db.get();
-  const freshMatch = freshData.matches[matchId];
-
-  await postOrUpdateBracket(client, freshMatch);
-
-  // Post prediction polls for round 0
-  for (let i = 0; i < freshMatch.bracket[0].length; i++) {
-    const bm = freshMatch.bracket[0][i];
-    if (!bm.bye && bm.p1 && bm.p2) await postPredictionPoll(client, freshMatch, bm, 0, i);
-  }
-
-  // Schedule reminders
-  for (let i = 0; i < freshMatch.bracket[0].length; i++) {
-    if (!freshMatch.bracket[0][i].bye) scheduleMatchReminder(client, freshMatch, matchId, i, 0);
-  }
 }
 
 // ── Slash command ─────────────────────────────────────────────────────────────
@@ -946,6 +1047,7 @@ module.exports = {
   timers, canManageMatch, logMatchResult, MATCH_MANAGER_ROLES, DEFAULT_LOG_CHANNEL_ID, MATCH_PING_ROLE_ID,
   postPredictionPoll, revealPrediction, scheduleMatchReminder,
   matchReminderTimers, dmUser, getMinPlayers,
+  startVotesFromSeedPreview, reshuffleSeedPreview,
 };
 
 

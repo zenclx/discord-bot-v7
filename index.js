@@ -258,6 +258,7 @@ client.on('interactionCreate', async interaction => {
     buildQueueEmbed, buildQueueCancelledEmbed, buildCheckInEmbed, makeCheckInRows, timers, startBracket, canManageMatch, scheduleChannelDelete,
     buildNextRound, fetchDisplayNames, makeBracketAttachment, postOrUpdateBracket, logMatchResult,
     revealPrediction, scheduleMatchReminder, dmUser, postPredictionPoll, DEFAULT_LOG_CHANNEL_ID, getMinPlayers,
+    startVotesFromSeedPreview, reshuffleSeedPreview,
   } = require('./commands/creatematch');
   const { checkAchievements } = require('./commands/achievements');
   const { applyMatchElo, applyMatchStreaks, buildMatchEloSummary, getEloData } = require('./commands/elo');
@@ -340,6 +341,28 @@ client.on('interactionCreate', async interaction => {
     db.set(data);
     const label = side === 'p1' ? pred.p1Label : pred.p2Label;
     return interaction.reply({ content: already ? `✅ Vote changed to **${label}**` : `✅ Voted for **${label}**`, flags: 64 });
+  }
+
+  if (customId.startsWith('seed_confirm_')) {
+    const matchId = customId.replace('seed_confirm_', '');
+    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+    await interaction.deferUpdate();
+    const started = await startVotesFromSeedPreview(client, matchId);
+    if (!started) {
+      return interaction.followUp({ content: 'Seed preview is no longer active.', flags: 64 });
+    }
+    return;
+  }
+
+  if (customId.startsWith('seed_reshuffle_')) {
+    const matchId = customId.replace('seed_reshuffle_', '');
+    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+    await interaction.deferUpdate();
+    const shuffled = await reshuffleSeedPreview(client, matchId);
+    if (!shuffled) {
+      return interaction.followUp({ content: 'Seed preview is no longer active.', flags: 64 });
+    }
+    return;
   }
 
   // ── Queue: join ───────────────────────────────────────────────────────────

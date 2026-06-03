@@ -15,7 +15,7 @@ const CHECKIN_DURATION_MS = 2 * 60 * 1000;
 const timers = new Map();
 const matchReminderTimers = new Map();
 const MATCH_MANAGER_ROLES = ['1387600871377993820'];
-const MATCH_CATEGORY_ID = '1333182926858223718';
+const MATCH_CATEGORY_ID = '1511861274005471282';
 const REMINDER_AFTER_MS = 15 * 60 * 1000;
 const DEFAULT_LOG_CHANNEL_ID = '1384695119243907132';
 const MATCH_PING_ROLE_ID = '1333145733955850348';
@@ -288,10 +288,25 @@ function scheduleMatchReminder(client, match, matchId, bracketMatchIndex, round)
 async function createMatchChannel(client, match) {
   try {
     const guild = await client.guilds.fetch(match.guildId);
+    const data = db.get();
+    const configuredManagerRoles = data.settings?.[match.guildId]?.matchManagerRoles || [];
+    const managerRoles = [...new Set([...MATCH_MANAGER_ROLES, ...configuredManagerRoles])];
     const overwrites = [
       { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: client.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.EmbedLinks,
+          PermissionFlagsBits.ManageChannels,
+          PermissionFlagsBits.ManageMessages,
+        ],
+      },
       ...match.queue.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
-      ...MATCH_MANAGER_ROLES.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
+      ...managerRoles.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
     ];
     return await guild.channels.create({
       name: `match-${match.matchNum ?? 0}`,

@@ -728,6 +728,15 @@ async function startBracket(client, matchId) {
     return;
   }
 
+  const activeTimers = timers.get(matchId);
+  if (activeTimers) {
+    clearTimeout(activeTimers.timer);
+    clearInterval(activeTimers.interval);
+    clearTimeout(activeTimers.checkinTimer);
+    clearInterval(activeTimers.checkinInterval);
+    timers.delete(matchId);
+  }
+
   match.status = 'bracket';
   const eloData = getEloData(data);
   try {
@@ -771,7 +780,7 @@ async function startBracket(client, matchId) {
 
   data.matches[matchId] = match;
   db.set(data);
-  await saveToDiscord(client);
+  saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket initial failed:', error.message));
 
   const privateChannel = match.privateChannelId
     ? await client.channels.fetch(match.privateChannelId).catch(() => null)
@@ -781,39 +790,39 @@ async function startBracket(client, matchId) {
   match.privateChannelId = privateChannel.id;
   data.matches[matchId] = match;
   db.set(data);
-  await saveToDiscord(client);
+  saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket channel failed:', error.message));
 
-  // DM all players with channel link
-  for (const playerId of match.queue) {
-    await dmUser(client, playerId,
-      `⚔️ **Your match has started!** Go to <#${privateChannel.id}>\n> Match #${match.matchNum ?? '?'} (${match.type.toUpperCase()})${match.prize ? `\n> 🎁 Prize: ${match.prize}` : ''}`
-    );
-  }
+  (async () => {
+    for (const playerId of match.queue) {
+      await dmUser(client, playerId,
+        `**Your match has started!** Go to <#${privateChannel.id}>`
+      );
+    }
 
-  // Update public queue message with link
-  try {
-    const ch = await client.channels.fetch(match.channelId);
-    const msg = await ch.messages.fetch(match.messageId);
-    const startEmbed = new EmbedBuilder()
-      .setTitle('⚔️ Match Started!')
-      .setColor(DARK_BLUE)
-      .setDescription(`**${match.queue.length} players** locked in!\n\n➡️ **[Go to your match channel](https://discord.com/channels/${match.guildId}/${privateChannel.id})**`)
-      .setTimestamp();
-    if (match.prize) startEmbed.addFields({ name: '🎁 Prize', value: `**${match.prize}**` });
-    startEmbed.addFields({
-      name: 'Queue Status',
-      value: 'Queue started. Use `/spectate` if you want to spectate the match.',
-      inline: false,
-    });
-    await ch.send({
-      content: `${match.queue.map(id => `<@${id}>`).join(' ')}\nMatch started. Head to <#${privateChannel.id}>.`,
-      allowedMentions: { parse: ['users'] },
-    });
-    await msg.edit({
-      embeds: [startEmbed],
-      components: [],
-    });
-  } catch {}
+    try {
+      const ch = await client.channels.fetch(match.channelId);
+      const msg = await ch.messages.fetch(match.messageId);
+      const startEmbed = new EmbedBuilder()
+        .setTitle('Match Started!')
+        .setColor(DARK_BLUE)
+        .setDescription(`**${match.queue.length} players** locked in!\n\nGo to <#${privateChannel.id}>`)
+        .setTimestamp();
+      if (match.prize) startEmbed.addFields({ name: 'Prize', value: `**${match.prize}**` });
+      startEmbed.addFields({
+        name: 'Queue Status',
+        value: 'Queue started. Use `/spectate` if you want to spectate the match.',
+        inline: false,
+      });
+      await ch.send({
+        content: `${match.queue.map(id => `<@${id}>`).join(' ')}\nMatch started. Head to <#${privateChannel.id}>.`,
+        allowedMentions: { parse: ['users'] },
+      });
+      await msg.edit({
+        embeds: [startEmbed],
+        components: [],
+      });
+    } catch {}
+  })().catch(error => console.error('match start notification failed:', error.message));
 
   // ── ORDER: 1) Bo3 vote (60s) → 2) Region vote (60s) → 3) Bracket ──────────
   await postBo3Vote(client, match);

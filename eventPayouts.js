@@ -5,6 +5,10 @@ const { getRobloxLinks, getGroupMembership, getMembershipRoles, lookupRobloxUser
 
 const DEFAULT_EVENT_LOG_CHANNEL_ID = process.env.EVENT_LOG_CHANNEL_ID || '1511889756773027862';
 const DEFAULT_PAYOUT_REPORT_CHANNEL_ID = process.env.PAYOUT_REPORT_CHANNEL_ID || '1511890235011764305';
+const FIXED_MONTHLY_PAYOUTS = {
+  1318524365: 1500,
+  7809574314: 1500,
+};
 
 const COORDINATOR_RANKS = {
   junior: {
@@ -261,14 +265,37 @@ async function buildMonthlyPayout(client, guildId, month) {
     row.rank = rank;
     row.rankLabel = formatRank(rank);
     row.payPerEvent = payPerEvent;
-    row.totalPay = row.eventsHosted * payPerEvent;
+    const fixedPay = FIXED_MONTHLY_PAYOUTS[row.robloxUserId];
+    row.fixedMonthlyPay = fixedPay || null;
+    row.totalPay = fixedPay || (row.eventsHosted * payPerEvent);
+    if (fixedPay) {
+      row.rankLabel = 'Fixed monthly payout';
+      row.payPerEvent = 0;
+    }
 
     if (!row.robloxUserId) warnings.push(`<@${row.discordUserId}> is missing Roblox ID.`);
-    if (!rank) warnings.push(`<@${row.discordUserId}> is missing coordinator rank/pay role.`);
+    if (!rank && !fixedPay) warnings.push(`<@${row.discordUserId}> is missing coordinator rank/pay role.`);
     rows.push(row);
   }
 
-  rows.sort((a, b) => b.totalPay - a.totalPay || b.eventsHosted - a.eventsHosted || a.discordUserId.localeCompare(b.discordUserId));
+  const includedRobloxIds = new Set(rows.map(row => String(row.robloxUserId)).filter(Boolean));
+  for (const [robloxUserId, amount] of Object.entries(FIXED_MONTHLY_PAYOUTS)) {
+    if (includedRobloxIds.has(robloxUserId)) continue;
+    rows.push({
+      discordUserId: null,
+      robloxUsername: null,
+      robloxUserId,
+      eventsHosted: 0,
+      eventIds: [],
+      rank: 'fixed',
+      rankLabel: 'Fixed monthly payout',
+      payPerEvent: 0,
+      fixedMonthlyPay: amount,
+      totalPay: amount,
+    });
+  }
+
+  rows.sort((a, b) => b.totalPay - a.totalPay || b.eventsHosted - a.eventsHosted || String(a.discordUserId || a.robloxUserId).localeCompare(String(b.discordUserId || b.robloxUserId)));
   return { month: normalizedMonth, events, rows, warnings };
 }
 
@@ -342,7 +369,9 @@ function buildPayoutCsv(rows) {
 
 function buildPayoutEmbed(result) {
   const lines = result.rows.map(row => {
-    return `<@${row.discordUserId}> | ${row.robloxUserId || 'Missing ID'} | ${row.rankLabel} | ${row.eventsHosted} events | ${row.payPerEvent} Robux/event | ${row.totalPay} Robux`;
+    const host = row.discordUserId ? `<@${row.discordUserId}>` : 'Fixed payout';
+    const rate = row.fixedMonthlyPay ? 'locked' : `${row.payPerEvent} Robux/event`;
+    return `${host} | ${row.robloxUserId || 'Missing ID'} | ${row.rankLabel} | ${row.eventsHosted} events | ${rate} | ${row.totalPay} Robux`;
   });
 
   const embed = new EmbedBuilder()

@@ -428,6 +428,8 @@ module.exports = {
   ROLE_PREFIXES,
   PREFIX_PRIORITY,
   getRobloxLinks,
+  getGroupMembership,
+  getMembershipRoles,
   lookupRobloxUser,
   linkRobloxAccount,
   syncRobloxTierForDiscordUser,

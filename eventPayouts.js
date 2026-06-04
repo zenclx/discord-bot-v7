@@ -1,7 +1,7 @@
 const { AttachmentBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('./database');
 const { saveToDiscord } = require('./discordBackup');
-const { getRobloxLinks, lookupRobloxUser, STAFF_ROLE_IDS } = require('./robloxSync');
+const { getRobloxLinks, getGroupMembership, getMembershipRoles, lookupRobloxUser, STAFF_ROLE_IDS } = require('./robloxSync');
 
 const DEFAULT_EVENT_LOG_CHANNEL_ID = process.env.EVENT_LOG_CHANNEL_ID || '1511889756773027862';
 const DEFAULT_PAYOUT_REPORT_CHANNEL_ID = process.env.PAYOUT_REPORT_CHANNEL_ID || '1511890235011764305';
@@ -107,6 +107,14 @@ function getRankFromMember(member, manualRank) {
   if (member.roles.cache.has(COORDINATOR_RANKS.senior.discordRoleId)) return 'senior';
   if (member.roles.cache.has(COORDINATOR_RANKS.coordinator.discordRoleId)) return 'coordinator';
   if (member.roles.cache.has(COORDINATOR_RANKS.junior.discordRoleId)) return 'junior';
+  return null;
+}
+
+function getRankFromRobloxRoles(roles) {
+  const roleSet = new Set((roles || []).map(String));
+  if (roleSet.has(STAFF_ROLE_IDS.senior_coordinator)) return 'senior';
+  if (roleSet.has(STAFF_ROLE_IDS.coordinator)) return 'coordinator';
+  if (roleSet.has(STAFF_ROLE_IDS.trial_coordinator)) return 'junior';
   return null;
 }
 
@@ -264,6 +272,67 @@ async function buildMonthlyPayout(client, guildId, month) {
   return { month: normalizedMonth, events, rows, warnings };
 }
 
+async function syncCoordinatorRanks(client, guildId, source = 'both') {
+  const useDiscord = source === 'discord' || source === 'both';
+  const useRoblox = source === 'roblox' || source === 'both';
+  const data = db.get();
+  const store = getGuildPayoutStore(data, guildId);
+  const links = getRobloxLinks(data, guildId);
+  const synced = [];
+  const warnings = [];
+
+  if (useDiscord) {
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) {
+      warnings.push('Discord guild could not be fetched.');
+    } else {
+      let members;
+      try {
+        members = await guild.members.fetch();
+      } catch (error) {
+        warnings.push(`Full Discord member scan failed: ${error.message}`);
+        members = guild.members.cache;
+      }
+
+      for (const member of members.values()) {
+        const rank = getRankFromMember(member, null);
+        if (!rank) continue;
+        store.hostRanks[member.id] = rank;
+        synced.push({ discordUserId: member.id, rank, source: 'discord' });
+      }
+    }
+  }
+
+  if (useRoblox) {
+    for (const [discordUserId, link] of Object.entries(links)) {
+      if (!link?.robloxUserId) continue;
+      try {
+        const membership = await getGroupMembership(link.robloxUserId);
+        const rank = getRankFromRobloxRoles(getMembershipRoles(membership));
+        if (!rank) continue;
+        store.hostRanks[discordUserId] = rank;
+        synced.push({ discordUserId, rank, source: 'roblox', robloxUserId: link.robloxUserId });
+      } catch (error) {
+        warnings.push(`${link.robloxUsername || link.robloxUserId}: ${error.message}`);
+      }
+    }
+  }
+
+  db.set(data);
+  await saveToDiscord(client).catch(error => warnings.push(`Discord backup failed: ${error.message}`));
+
+  return {
+    synced,
+    warnings,
+    counts: {
+      total: synced.length,
+      junior: synced.filter(item => item.rank === 'junior').length,
+      coordinator: synced.filter(item => item.rank === 'coordinator').length,
+      senior: synced.filter(item => item.rank === 'senior').length,
+    },
+  };
+}
+
 function buildPayoutCsv(rows) {
   return rows
     .filter(row => row.robloxUserId && row.totalPay > 0)
@@ -361,6 +430,7 @@ module.exports = {
   recordHostedEventFromMatch,
   buildMonthlyPayout,
   buildPayoutCsv,
+  syncCoordinatorRanks,
   sendMonthlyPayoutReport,
   scheduleMonthlyEventPayouts,
 };

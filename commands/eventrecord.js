@@ -8,6 +8,7 @@ const {
   resolveRobloxLink,
   saveEventRecord,
   sendEventLog,
+  syncCoordinatorRanks,
 } = require('../eventPayouts');
 
 function parseDateInput(value) {
@@ -65,7 +66,19 @@ module.exports = {
       .setName('rank')
       .setDescription('Manually set a host payout rank')
       .addUserOption(o => o.setName('user').setDescription('Host').setRequired(true))
-      .addStringOption(o => rankChoices(o.setName('rank').setDescription('Coordinator rank').setRequired(true)))),
+      .addStringOption(o => rankChoices(o.setName('rank').setDescription('Coordinator rank').setRequired(true))))
+    .addSubcommand(sub => sub
+      .setName('sync')
+      .setDescription('Sync current coordinator roles into payout ranks')
+      .addStringOption(o => o
+        .setName('source')
+        .setDescription('Where to read coordinator ranks from')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Discord roles + linked Roblox roles', value: 'both' },
+          { name: 'Discord roles only', value: 'discord' },
+          { name: 'Linked Roblox group roles only', value: 'roblox' },
+        ))),
 
   async execute(interaction) {
     if (!hasPayoutPermission(interaction)) {
@@ -139,6 +152,19 @@ module.exports = {
       db.set(data);
       await saveToDiscord(interaction.client);
       return interaction.editReply(`Set <@${user.id}> payout rank to **${COORDINATOR_RANKS[rank].label}**.`);
+    }
+
+    if (subcommand === 'sync') {
+      const source = interaction.options.getString('source') || 'both';
+      const result = await syncCoordinatorRanks(interaction.client, interaction.guildId, source);
+      const warningText = result.warnings.length
+        ? `\nWarnings:\n${result.warnings.slice(0, 6).join('\n')}`
+        : '';
+      return interaction.editReply(
+        `Synced **${result.counts.total}** coordinator payout ranks.\n` +
+        `Junior: **${result.counts.junior}** | Coordinator: **${result.counts.coordinator}** | Senior: **${result.counts.senior}**` +
+        warningText
+      );
     }
 
     const now = new Date();

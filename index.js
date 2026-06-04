@@ -30,7 +30,7 @@ const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup')
 const { buildScoreboardEmbed } = require('./utils');
 const { loadCommands } = require('./commands/registry');
 const { sendStaffAuditLog } = require('./auditLog');
-const { scheduleMonthlyEventPayouts } = require('./eventPayouts');
+const { recordHostedEventFromMatch, scheduleMonthlyEventPayouts } = require('./eventPayouts');
 
 function cleanEnvValue(value) {
   return String(value || '').trim().replace(/^["']|["']$/g, '').trim();
@@ -723,10 +723,8 @@ client.on('interactionCreate', async interaction => {
         const completeData = db.get();
         completeData.matches[matchId] = match;
         db.set(completeData);
-        await applyMatchStreaks(client, match, champion);
-
-        try { const guild = await client.guilds.fetch(match.guildId); await checkAchievements(client, guild, champion, completeData); } catch {}
-        await postOrUpdateBracket(client, match);
+        recordHostedEventFromMatch(client, match).catch(error => console.error('recordHostedEventFromMatch complete error:', error.message));
+        let finalReplyPromise = null;
 
         if (match.privateChannelId) {
           try {
@@ -744,6 +742,7 @@ client.on('interactionCreate', async interaction => {
               .addFields({ name: 'Match ELO Changes', value: eloSummary.slice(0, 1024), inline: false })
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
+            finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
             const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
             const logCh = await client.channels.fetch(logChannelId).catch(() => null);
             if (logCh) {
@@ -768,11 +767,17 @@ client.on('interactionCreate', async interaction => {
           scheduleChannelDelete(client, match.privateChannelId);
         }
 
+        (async () => {
+          await applyMatchStreaks(client, match, champion);
+          try { const guild = await client.guilds.fetch(match.guildId); await checkAchievements(client, guild, champion, completeData); } catch {}
+          await postOrUpdateBracket(client, match);
+        })().catch(error => console.error('match completion background updates failed:', error.message));
+
         await dmUser(client, champion,
           `🏆 **Congratulations!** You won Match #${match.matchNum ?? '?'} (${match.type.toUpperCase()})!${match.prize ? `\n🎁 Prize: ${match.prize}` : ''}`
         );
 
-        return interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` });
+        return finalReplyPromise || interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` });
       }
 
       // Advance to next round

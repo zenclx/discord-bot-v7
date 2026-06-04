@@ -330,7 +330,11 @@ async function fetchDisplayNames(guild, round) {
 
 // ── DM helper ─────────────────────────────────────────────────────────────────
 async function dmUser(client, userId, content) {
-  try { await (await client.users.fetch(userId)).send(content); } catch {}
+  try {
+    const data = db.get();
+    if (data.userSettings && Object.values(data.userSettings).some(guildSettings => guildSettings?.[userId]?.botNotificationsDisabled)) return;
+    await (await client.users.fetch(userId)).send(content);
+  } catch {}
 }
 
 // ── Match reminder ────────────────────────────────────────────────────────────

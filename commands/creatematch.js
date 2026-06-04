@@ -762,7 +762,8 @@ async function startCheckIn(client, matchId) {
 async function startVotesFromSeedPreview(client, matchId) {
   const data = db.get();
   const match = data.matches?.[matchId];
-  if (!match || match.status !== 'seeding') return false;
+  if (!match || !match.bracket?.length || !['seeding', 'bracket'].includes(match.status)) return false;
+  const alreadyConfirmed = Boolean(match.seedPreviewConfirmed);
 
   match.status = 'bracket';
   match.seedPreviewConfirmed = true;
@@ -778,7 +779,10 @@ async function startVotesFromSeedPreview(client, matchId) {
 
   const freshData = db.get();
   const freshMatch = freshData.matches[matchId];
+  if (!freshMatch?.bracket?.length) return false;
   await postOrUpdateBracket(client, freshMatch);
+
+  if (alreadyConfirmed) return true;
 
   for (let i = 0; i < freshMatch.bracket[0].length; i++) {
     const bm = freshMatch.bracket[0][i];

@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('../database');
 const { saveToDiscord } = require('../discordBackup');
-const { DEFAULT_EVENT_LOG_CHANNEL_ID, DEFAULT_PAYOUT_REPORT_CHANNEL_ID, getGuildSettings } = require('../eventPayouts');
+const { DEFAULT_EVENT_LOG_CHANNEL_ID, DEFAULT_PAYOUT_REPORT_CHANNEL_ID, getGuildSettings, sendEventLog } = require('../eventPayouts');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -23,7 +23,10 @@ module.exports = {
       .addRoleOption(o => o.setName('role').setDescription('Admin/mod role').setRequired(true)))
     .addSubcommand(sub => sub
       .setName('show')
-      .setDescription('Show current event payout config')),
+      .setDescription('Show current event payout config'))
+    .addSubcommand(sub => sub
+      .setName('testlogs')
+      .setDescription('Send a test event host log to configured log channels')),
 
   async execute(interaction) {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
@@ -62,6 +65,21 @@ module.exports = {
       db.set(data);
       await saveToDiscord(interaction.client);
       return interaction.reply({ content: `<@&${role.id}> can no longer manage event payouts.`, flags: 64 });
+    }
+
+    if (subcommand === 'testlogs') {
+      await interaction.deferReply({ flags: 64 });
+      await sendEventLog(interaction.client, interaction.guildId, {
+        id: `test-${Date.now()}`,
+        hostId: interaction.user.id,
+        robloxUsername: 'test',
+        robloxUserId: '0',
+        prize: 'test',
+        attendees: 0,
+        source: 'test',
+        timestamp: Date.now(),
+      });
+      return interaction.editReply(`Sent a test host log. Check <#${settings.eventLogChannelId || DEFAULT_EVENT_LOG_CHANNEL_ID}> and your match log channel.`);
     }
 
     const roles = settings.payoutAdminRoles.map(id => `<@&${id}>`).join(', ') || 'None';

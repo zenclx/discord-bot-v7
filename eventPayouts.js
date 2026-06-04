@@ -179,6 +179,7 @@ async function sendEventLog(client, guildId, event) {
   const data = db.get();
   const settings = getGuildSettings(data, guildId);
   const channelIds = [...new Set([
+    DEFAULT_EVENT_LOG_CHANNEL_ID,
     getEventLogChannelId(data, guildId),
     settings.logChannelId || DEFAULT_MATCH_LOG_CHANNEL_ID,
   ].filter(Boolean))];
@@ -202,10 +203,13 @@ async function sendEventLog(client, guildId, event) {
     .setTimestamp(event.timestamp || Date.now());
 
   for (const channelId of channelIds) {
-    const channel = await client.channels.fetch(channelId).catch(() => null);
+    const channel = await client.channels.fetch(channelId).catch(error => {
+      console.error(`Event log channel fetch failed for ${channelId}:`, error.message);
+      return null;
+    });
     if (!channel) continue;
     await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(error => {
-      console.error('Event log send failed:', error.message);
+      console.error(`Event log send failed for ${channelId}:`, error.message);
     });
   }
 }
@@ -216,6 +220,18 @@ async function recordHostedEventFromMatch(client, match) {
   const store = getGuildPayoutStore(data, match.guildId);
   const existing = store.events.find(event => event.matchId === match.id);
   if (existing) {
+    const link = getRobloxLinks(data, match.guildId)[match.hostId] || null;
+    let changed = false;
+    if (!existing.hostId && match.hostId) { existing.hostId = match.hostId; changed = true; }
+    if (!existing.prize && match.prize) { existing.prize = match.prize; changed = true; }
+    if (existing.attendees == null) { existing.attendees = uniqueAttendeeCount(match); changed = true; }
+    if (!existing.robloxUserId && link?.robloxUserId) { existing.robloxUserId = link.robloxUserId; changed = true; }
+    if (!existing.robloxUsername && link?.robloxUsername) { existing.robloxUsername = link.robloxUsername; changed = true; }
+    if (changed) {
+      existing.updatedAt = Date.now();
+      db.set(data);
+      saveToDiscord(client).catch(error => console.error('saveToDiscord event repair failed:', error.message));
+    }
     await sendEventLog(client, match.guildId, existing);
     return existing;
   }

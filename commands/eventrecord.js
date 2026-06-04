@@ -10,6 +10,7 @@ const {
   sendEventLog,
   syncCoordinatorRanks,
 } = require('../eventPayouts');
+const { getRobloxLinks } = require('../robloxSync');
 
 function parseDateInput(value) {
   if (!value) return Date.now();
@@ -60,7 +61,15 @@ module.exports = {
       .addStringOption(o => o.setName('id').setDescription('Event record ID').setRequired(true)))
     .addSubcommand(sub => sub
       .setName('list')
-      .setDescription('List tracked events')
+      .setDescription('List synced payout hosts or tracked events')
+      .addStringOption(o => o
+        .setName('view')
+        .setDescription('What to list')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Synced payout hosts', value: 'synced' },
+          { name: 'Event records', value: 'events' },
+        ))
       .addStringOption(o => o.setName('month').setDescription('YYYY-MM, defaults to current month').setRequired(false)))
     .addSubcommand(sub => sub
       .setName('rank')
@@ -167,10 +176,35 @@ module.exports = {
       );
     }
 
-    const now = new Date();
-    const month = interaction.options.getString('month') || `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
     const data = db.get();
     const store = getGuildPayoutStore(data, interaction.guildId);
+    const view = interaction.options.getString('view') || 'synced';
+
+    if (view === 'synced') {
+      const links = getRobloxLinks(data, interaction.guildId);
+      const rankOrder = { senior: 0, coordinator: 1, junior: 2 };
+      const rows = Object.entries(store.hostRanks || {})
+        .sort(([, aRank], [, bRank]) => (rankOrder[aRank] ?? 99) - (rankOrder[bRank] ?? 99))
+        .map(([userId, rank]) => {
+          const config = COORDINATOR_RANKS[rank];
+          const link = links[userId];
+          const roblox = link?.robloxUserId
+            ? `${link.robloxUsername || link.robloxUserId} (${link.robloxUserId})`
+            : 'Missing Roblox ID';
+          return `<@${userId}> | ${config?.label || rank} | ${config?.payPerEvent || 0}/event | ${roblox}`;
+        });
+
+      const embed = new EmbedBuilder()
+        .setTitle('Synced Event Payout Hosts')
+        .setColor(0x1f4fd8)
+        .setDescription(rows.length ? rows.slice(0, 25).join('\n') : 'No payout hosts are synced yet. Run `/eventrecord sync` first.')
+        .addFields({ name: 'Synced Hosts', value: String(rows.length), inline: true })
+        .setTimestamp();
+      return interaction.editReply({ embeds: [embed] });
+    }
+
+    const now = new Date();
+    const month = interaction.options.getString('month') || `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
     const rows = store.events
       .filter(event => new Date(event.timestamp).toISOString().startsWith(month))
       .slice(0, 15);

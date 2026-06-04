@@ -171,16 +171,26 @@ function makeSeedPreviewRows(matchId) {
   ];
 }
 
-async function postSeedPreview(client, match) {
-  const channel = match.seedPreviewChannelId
+async function postSeedPreview(client, match, { allowChannelFallback = false } = {}) {
+  let usedFallback = false;
+  let channel = match.seedPreviewChannelId
     ? await client.channels.fetch(match.seedPreviewChannelId).catch(() => null)
     : await client.users.fetch(match.hostId).then(user => user.createDM()).catch(() => null);
+
+  if (!channel && allowChannelFallback && match.privateChannelId) {
+    channel = await client.channels.fetch(match.privateChannelId).catch(() => null);
+    usedFallback = Boolean(channel);
+  }
+
   if (!channel) return null;
   const payload = {
+    content: usedFallback
+      ? `<@${match.hostId}> I could not DM you the bracket preview. Confirm or reshuffle it here.`
+      : null,
     embeds: [buildSeedPreviewEmbed(match)],
     components: makeSeedPreviewRows(match.id),
     files: [makeBracketAttachment(match)],
-    allowedMentions: { parse: [] },
+    allowedMentions: usedFallback ? { users: [match.hostId] } : { parse: [] },
   };
   if (match.seedPreviewMessageId) {
     const msg = await channel.messages.fetch(match.seedPreviewMessageId).catch(() => null);
@@ -938,8 +948,10 @@ async function startBracket(client, matchId) {
     } catch {}
   })().catch(error => console.error('match start notification failed:', error.message));
 
-  await postBo3Vote(client, match);
-  await postRegionVote(client, match);
+  await Promise.all([
+    postBo3Vote(client, match),
+    postRegionVote(client, match),
+  ]);
 
   const seededData = db.get();
   const seededMatch = seededData.matches[matchId];
@@ -949,7 +961,7 @@ async function startBracket(client, matchId) {
   db.set(seededData);
   saveToDiscord(client).catch(error => console.error('saveToDiscord seed preview failed:', error.message));
 
-  const previewMessage = await postSeedPreview(client, seededMatch);
+  const previewMessage = await postSeedPreview(client, seededMatch, { allowChannelFallback: true });
   if (previewMessage) {
     seededMatch.seedPreviewMessageId = previewMessage.id;
     seededMatch.seedPreviewChannelId = previewMessage.channelId;

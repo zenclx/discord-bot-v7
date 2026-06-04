@@ -47,7 +47,13 @@ for (const [name, value] of Object.entries({ DISCORD_TOKEN, CLIENT_ID, GUILD_ID 
   }
 }
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMembers,
+  ],
+});
 client.commands = new Collection();
 
 const localCommands = loadCommands();

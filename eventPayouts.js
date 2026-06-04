@@ -288,9 +288,9 @@ async function syncCoordinatorRanks(client, guildId, source = 'both') {
     } else {
       let members;
       try {
-        members = await guild.members.fetch();
+        members = await guild.members.fetch({ time: 60000 });
       } catch (error) {
-        warnings.push(`Full Discord member scan failed: ${error.message}`);
+        warnings.push(`Full Discord member scan failed: ${error.message}. Enable Server Members Intent in the Discord Developer Portal, then redeploy.`);
         members = guild.members.cache;
       }
 

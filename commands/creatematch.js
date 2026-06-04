@@ -171,7 +171,9 @@ function makeSeedPreviewRows(matchId) {
 }
 
 async function postSeedPreview(client, match) {
-  const channel = await client.channels.fetch(match.privateChannelId).catch(() => null);
+  const channel = match.seedPreviewChannelId
+    ? await client.channels.fetch(match.seedPreviewChannelId).catch(() => null)
+    : await client.users.fetch(match.hostId).then(user => user.createDM()).catch(() => null);
   if (!channel) return null;
   const payload = {
     embeds: [buildSeedPreviewEmbed(match)],
@@ -757,13 +759,10 @@ async function startVotesFromSeedPreview(client, matchId) {
   saveToDiscord(client).catch(error => console.error('saveToDiscord seed confirm failed:', error.message));
 
   try {
-    const ch = await client.channels.fetch(match.privateChannelId);
+    const ch = await client.channels.fetch(match.seedPreviewChannelId);
     const msg = await ch.messages.fetch(match.seedPreviewMessageId);
     await msg.edit({ components: [] });
   } catch {}
-
-  await postBo3Vote(client, match);
-  await postRegionVote(client, match);
 
   const freshData = db.get();
   const freshMatch = freshData.matches[matchId];
@@ -797,7 +796,10 @@ async function reshuffleSeedPreview(client, matchId) {
   db.set(data);
   saveToDiscord(client).catch(error => console.error('saveToDiscord seed reshuffle failed:', error.message));
   const msg = await postSeedPreview(client, match);
-  if (msg) match.seedPreviewMessageId = msg.id;
+  if (msg) {
+    match.seedPreviewMessageId = msg.id;
+    match.seedPreviewChannelId = msg.channelId;
+  }
   data.matches[matchId] = match;
   db.set(data);
   return true;
@@ -902,18 +904,6 @@ async function startBracket(client, matchId) {
   db.set(data);
   saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket channel failed:', error.message));
 
-  match.status = 'seeding';
-  data.matches[matchId] = match;
-  db.set(data);
-  saveToDiscord(client).catch(error => console.error('saveToDiscord seed preview failed:', error.message));
-
-  const previewMessage = await postSeedPreview(client, match);
-  if (previewMessage) {
-    match.seedPreviewMessageId = previewMessage.id;
-    data.matches[matchId] = match;
-    db.set(data);
-  }
-
   (async () => {
     for (const playerId of match.queue) {
       await dmUser(client, playerId,
@@ -945,6 +935,25 @@ async function startBracket(client, matchId) {
       });
     } catch {}
   })().catch(error => console.error('match start notification failed:', error.message));
+
+  await postBo3Vote(client, match);
+  await postRegionVote(client, match);
+
+  const seededData = db.get();
+  const seededMatch = seededData.matches[matchId];
+  if (!seededMatch) return;
+  seededMatch.status = 'seeding';
+  seededData.matches[matchId] = seededMatch;
+  db.set(seededData);
+  saveToDiscord(client).catch(error => console.error('saveToDiscord seed preview failed:', error.message));
+
+  const previewMessage = await postSeedPreview(client, seededMatch);
+  if (previewMessage) {
+    seededMatch.seedPreviewMessageId = previewMessage.id;
+    seededMatch.seedPreviewChannelId = previewMessage.channelId;
+    seededData.matches[matchId] = seededMatch;
+    db.set(seededData);
+  }
 }
 
 // ── Slash command ─────────────────────────────────────────────────────────────

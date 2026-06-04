@@ -345,7 +345,11 @@ client.on('interactionCreate', async interaction => {
 
   if (customId.startsWith('seed_confirm_')) {
     const matchId = customId.replace('seed_confirm_', '');
-    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+    const match = db.get().matches?.[matchId];
+    if (!match) return interaction.reply({ content: 'Seed preview is no longer active.', flags: 64 });
+    if (interaction.user.id !== match.hostId && !(interaction.member && canManageMatch(interaction.member))) {
+      return interaction.reply({ content: 'Only the host can confirm this bracket preview.', flags: 64 });
+    }
     await interaction.deferUpdate();
     const started = await startVotesFromSeedPreview(client, matchId);
     if (!started) {
@@ -356,7 +360,11 @@ client.on('interactionCreate', async interaction => {
 
   if (customId.startsWith('seed_reshuffle_')) {
     const matchId = customId.replace('seed_reshuffle_', '');
-    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
+    const match = db.get().matches?.[matchId];
+    if (!match) return interaction.reply({ content: 'Seed preview is no longer active.', flags: 64 });
+    if (interaction.user.id !== match.hostId && !(interaction.member && canManageMatch(interaction.member))) {
+      return interaction.reply({ content: 'Only the host can reshuffle this bracket preview.', flags: 64 });
+    }
     await interaction.deferUpdate();
     const shuffled = await reshuffleSeedPreview(client, matchId);
     if (!shuffled) {

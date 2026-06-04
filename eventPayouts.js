@@ -5,6 +5,7 @@ const { getRobloxLinks, getGroupMembership, getMembershipRoles, lookupRobloxUser
 
 const DEFAULT_EVENT_LOG_CHANNEL_ID = process.env.EVENT_LOG_CHANNEL_ID || '1511889756773027862';
 const DEFAULT_PAYOUT_REPORT_CHANNEL_ID = process.env.PAYOUT_REPORT_CHANNEL_ID || '1511890235011764305';
+const DEFAULT_MATCH_LOG_CHANNEL_ID = process.env.MATCH_LOG_CHANNEL_ID || '1384695119243907132';
 const FIXED_MONTHLY_PAYOUTS = {
   1318524365: 1500,
   7809574314: 1500,
@@ -176,11 +177,12 @@ async function saveEventRecord(client, guildId, event) {
 
 async function sendEventLog(client, guildId, event) {
   const data = db.get();
-  const channelId = getEventLogChannelId(data, guildId);
-  if (!channelId) return;
-
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel) return;
+  const settings = getGuildSettings(data, guildId);
+  const channelIds = [...new Set([
+    getEventLogChannelId(data, guildId),
+    settings.logChannelId || DEFAULT_MATCH_LOG_CHANNEL_ID,
+  ].filter(Boolean))];
+  if (!channelIds.length) return;
   const store = getGuildPayoutStore(data, guildId);
   const totalHosted = event.hostId
     ? store.events.filter(item => item.hostId === event.hostId).length
@@ -199,9 +201,13 @@ async function sendEventLog(client, guildId, event) {
     )
     .setTimestamp(event.timestamp || Date.now());
 
-  await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(error => {
-    console.error('Event log send failed:', error.message);
-  });
+  for (const channelId of channelIds) {
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel) continue;
+    await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(error => {
+      console.error('Event log send failed:', error.message);
+    });
+  }
 }
 
 async function recordHostedEventFromMatch(client, match) {
@@ -209,7 +215,10 @@ async function recordHostedEventFromMatch(client, match) {
   const data = db.get();
   const store = getGuildPayoutStore(data, match.guildId);
   const existing = store.events.find(event => event.matchId === match.id);
-  if (existing) return existing;
+  if (existing) {
+    await sendEventLog(client, match.guildId, existing);
+    return existing;
+  }
 
   const link = getRobloxLinks(data, match.guildId)[match.hostId] || null;
   const event = await saveEventRecord(client, match.guildId, {

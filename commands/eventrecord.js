@@ -24,6 +24,23 @@ function eventLine(event) {
   return `\`${event.id}\` | ${event.hostId ? `<@${event.hostId}>` : 'Missing host'} | ${event.attendees ?? '?'} attendees | ${event.prize || 'No prize'} | ${date}`;
 }
 
+function buildHostSummary(events) {
+  const counts = new Map();
+  for (const event of events) {
+    const key = event.hostId || 'missing';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const rows = [...counts.entries()]
+    .sort(([, a], [, b]) => b - a)
+    .map(([hostId, total]) => `${hostId === 'missing' ? 'Missing host' : `<@${hostId}>`} | ${total}`);
+
+  return {
+    rows,
+    total: events.length,
+  };
+}
+
 function rankChoices(option) {
   return option
     .addChoices(
@@ -205,14 +222,15 @@ module.exports = {
 
     const now = new Date();
     const month = interaction.options.getString('month') || `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    const rows = store.events
-      .filter(event => new Date(event.timestamp).toISOString().startsWith(month))
-      .slice(0, 15);
+    const events = store.events
+      .filter(event => new Date(event.timestamp).toISOString().startsWith(month));
+    const summary = buildHostSummary(events);
 
     const embed = new EmbedBuilder()
-      .setTitle(`Event Records - ${month}`)
+      .setTitle(`Event Host Summary - ${month}`)
       .setColor(0x1f4fd8)
-      .setDescription(rows.length ? rows.map(eventLine).join('\n') : 'No event records found.')
+      .setDescription(summary.rows.length ? summary.rows.slice(0, 25).join('\n') : 'No event records found.')
+      .addFields({ name: 'Total Matches Hosted', value: String(summary.total), inline: true })
       .setTimestamp();
     return interaction.editReply({ embeds: [embed] });
   },

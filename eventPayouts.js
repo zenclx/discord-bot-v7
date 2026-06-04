@@ -177,11 +177,9 @@ async function saveEventRecord(client, guildId, event) {
 
 async function sendEventLog(client, guildId, event) {
   const data = db.get();
-  const settings = getGuildSettings(data, guildId);
   const channelIds = [...new Set([
     DEFAULT_EVENT_LOG_CHANNEL_ID,
     getEventLogChannelId(data, guildId),
-    settings.logChannelId || DEFAULT_MATCH_LOG_CHANNEL_ID,
   ].filter(Boolean))];
   if (!channelIds.length) return;
   const store = getGuildPayoutStore(data, guildId);

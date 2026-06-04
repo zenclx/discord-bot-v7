@@ -9,6 +9,7 @@ const { DARK_BLUE } = require('../utils');
 const { buildBracketImage } = require('../bracketImage');
 const { getEloData, getPlayerElo } = require('./elo');
 const { sendStaffAuditLog } = require('../auditLog');
+const { recordHostedEventFromMatch } = require('../eventPayouts');
 
 const QUEUE_DURATION_MS = 5 * 60 * 1000;
 const CHECKIN_DURATION_MS = 2 * 60 * 1000;
@@ -155,7 +156,7 @@ function buildSeedPreviewEmbed(match) {
   return new EmbedBuilder()
     .setTitle(`Bracket Seeding Preview - Match #${match.matchNum ?? '?'}`)
     .setColor(DARK_BLUE)
-    .setDescription('Review the seeded bracket. Confirm to start voting, or reshuffle before the match begins.')
+    .setDescription('Review the seeded bracket. Confirm to post the official bracket, or reshuffle before the match begins.')
     .setImage('attachment://bracket.png')
     .setFooter({ text: `Match ID: ${match.id}` })
     .setTimestamp();
@@ -400,6 +401,7 @@ async function logMatchResult(client, match, winnerId, loserIds) {
     });
     if (data.matchLogs[guildId].length > 100) data.matchLogs[guildId].length = 100;
     db.set(data);
+    recordHostedEventFromMatch(client, match).catch(error => console.error('recordHostedEventFromMatch error:', error.message));
 
     const settings = data.settings?.[guildId] || {};
     const logChannelId = settings.logChannelId || DEFAULT_LOG_CHANNEL_ID;

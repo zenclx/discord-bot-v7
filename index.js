@@ -30,6 +30,7 @@ const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup')
 const { buildScoreboardEmbed } = require('./utils');
 const { loadCommands } = require('./commands/registry');
 const { sendStaffAuditLog } = require('./auditLog');
+const { scheduleMonthlyEventPayouts } = require('./eventPayouts');
 
 function cleanEnvValue(value) {
   return String(value || '').trim().replace(/^["']|["']$/g, '').trim();
@@ -126,6 +127,7 @@ client.once('ready', async () => {
   db.onSet(() => scheduleDiscordBackup(client));
   await registerCommands();
   restoreScheduledMatches();
+  scheduleMonthlyEventPayouts(client, () => client.guilds.cache.map(guild => guild.id));
 });
 
 // ── Match number helpers ──────────────────────────────────────────────────────

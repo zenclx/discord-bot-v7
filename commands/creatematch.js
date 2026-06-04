@@ -996,7 +996,7 @@ module.exports = {
     if (!existingData.eloLeaderboards?.[interaction.guildId]) {
       return interaction.reply({ content: 'No scoreboard found, cant run match. Create one with `/eloleaderboard` first.', flags: 64 });
     }
-    await interaction.deferReply();
+    await interaction.deferReply({ flags: 64 });
 
     const type = interaction.options.getString('type');
     const prize = interaction.options.getString('prize') || null;
@@ -1035,14 +1035,14 @@ module.exports = {
       { name: 'Test Match', value: testMatch ? 'Yes' : 'No', inline: true },
     ], interaction.user.id);
 
-    await interaction.editReply({
+    const queueMessage = await interaction.channel.send({
       content: testMatch ? null : `<@&${MATCH_PING_ROLE_ID}>`,
       embeds: [buildQueueEmbed(match)],
       components: [joinRow, cancelRow],
       allowedMentions: testMatch ? { parse: [] } : { roles: [MATCH_PING_ROLE_ID] },
     });
-    const msg = await interaction.fetchReply();
-    match.messageId = msg.id;
+    match.messageId = queueMessage.id;
+    await interaction.editReply({ content: `Match #${match.matchNum ?? '?'} queue created in <#${interaction.channelId}>.` });
 
     const savedData = db.get();
     if (!savedData.matches) savedData.matches = {};

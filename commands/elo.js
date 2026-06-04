@@ -155,14 +155,16 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
     if (data.matches?.[match.id]) data.matches[match.id] = match;
 
     db.set(data);
-    await saveToDiscord(client);
-    await updateEloLeaderboard(client, match.guildId);
+    (async () => {
+      await saveToDiscord(client);
+      await updateEloLeaderboard(client, match.guildId);
+      try {
+        const guild = await client.guilds.fetch(match.guildId);
+        await syncRoles(guild, winnerId, getTierForElo(winResult.newElo));
+        if (loserId && lossResult) await syncRoles(guild, loserId, getTierForElo(lossResult.newElo));
+      } catch {}
+    })().catch(error => console.error('applyMatchElo background update failed:', error.message));
 
-    try {
-      const guild = await client.guilds.fetch(match.guildId);
-      await syncRoles(guild, winnerId, getTierForElo(winResult.newElo));
-      if (loserId && lossResult) await syncRoles(guild, loserId, getTierForElo(lossResult.newElo));
-    } catch {}
     return { winner: winResult, loser: lossResult, ...delta };
   } catch (e) {
     console.error('applyMatchElo error:', e.message);

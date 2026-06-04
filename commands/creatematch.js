@@ -956,10 +956,8 @@ async function startBracket(client, matchId) {
     } catch {}
   })().catch(error => console.error('match start notification failed:', error.message));
 
-  await Promise.all([
-    postBo3Vote(client, match),
-    postRegionVote(client, match),
-  ]);
+  await postBo3Vote(client, match);
+  await postRegionVote(client, match);
 
   const seededData = db.get();
   const seededMatch = seededData.matches[matchId];

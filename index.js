@@ -671,7 +671,7 @@ client.on('interactionCreate', async interaction => {
 
     // Reveal prediction
     const predId = `pred|${matchId}|${round}|${matchIndex}`;
-    await revealPrediction(client, predId, winnerId);
+    revealPrediction(client, predId, winnerId).catch(error => console.error('revealPrediction background failed:', error.message));
 
     // Credit scoreboard win
     if (match.scoreboardName) {
@@ -759,6 +759,7 @@ client.on('interactionCreate', async interaction => {
                 .setDescription(`Champion: <@${champion}>`)
                 .setImage('attachment://bracket.png')
                 .addFields(
+                  { name: 'Host', value: match.hostId ? `<@${match.hostId}>` : 'Unknown', inline: true },
                   { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
                 )
                 .setTimestamp();

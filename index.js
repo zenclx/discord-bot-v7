@@ -289,6 +289,20 @@ client.on('interactionCreate', async interaction => {
     return [makeJoinRow(matchId), cancelRow];
   }
 
+  // ── ELO leaderboard pagination ────────────────────────────────────────────
+  if (customId.startsWith('elolb_page_')) {
+    const page = parseInt(customId.replace('elolb_page_', ''), 10);
+    if (!isNaN(page)) {
+      const { buildEloLeaderboardEmbed, buildLeaderboardComponents, getEloData } = require('./commands/elo');
+      const data = db.get();
+      const eloData = getEloData(data);
+      const embed = buildEloLeaderboardEmbed(eloData, page);
+      const components = buildLeaderboardComponents(eloData, page);
+      await interaction.update({ embeds: [embed], components });
+    }
+    return;
+  }
+
   // ── Bo3 vote buttons ──────────────────────────────────────────────────────
   // Format: bo3|matchId|choice
   if (customId.startsWith('bo3|')) {

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 const db = require('../database');
 const { sendStaffAuditLog } = require('../auditLog');
 const { saveToDiscord } = require('../discordBackup');
@@ -312,29 +312,59 @@ function buildMatchEloSummary(match, eloData) {
   }).join('\n') || 'No ELO changes recorded.';
 }
 
-function buildEloLeaderboardEmbed(eloData) {
+const PAGE_SIZE = 10;
+
+function buildEloLeaderboardEmbed(eloData, page = 0) {
   const sorted = Object.entries(eloData || {})
     .map(([userId, p]) => ({ userId, elo: p.elo || 0, wins: p.wins || 0, losses: p.losses || 0, currentStreak: p.currentStreak || 0 }))
-    .sort((a, b) => b.elo - a.elo || b.wins - a.wins)
-    .slice(0, 20);
+    .sort((a, b) => b.elo - a.elo || b.wins - a.wins);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, page), totalPages - 1);
+  const slice = sorted.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   const medals = ['🥇', '🥈', '🥉'];
 
-  const description = sorted.length
-    ? sorted.map((p, i) => {
+  const description = slice.length
+    ? slice.map((p, i) => {
+      const globalIndex = safePage * PAGE_SIZE + i;
       const tier = getTierForElo(p.elo);
-      const rank = medals[i] || `\`${i + 1}.\``;
+      const rank = medals[globalIndex] || `\`${globalIndex + 1}.\``;
       const streak = p.currentStreak >= 3 ? ` 🔥 ${p.currentStreak}W` : '';
       return `${rank} <@${p.userId}>\n> \`${formatNumber(p.elo)} ELO\` · Tier ${tier.tier} · ${p.wins}W/${p.losses}L${streak}`;
     }).join('\n')
     : 'No ELO data yet. Play some matches!';
 
+  const footerText = totalPages > 1
+    ? `Page ${safePage + 1} of ${totalPages} · Auto-updates after each match · Everyone starts at Tier V`
+    : 'Auto-updates after each match · Everyone starts at Tier V';
+
   return new EmbedBuilder()
     .setTitle('🏆 ELO Leaderboard')
     .setColor(0xffd700)
     .setDescription(description)
-    .setFooter({ text: 'Auto-updates after each match · Everyone starts at Tier V' })
+    .setFooter({ text: footerText })
     .setTimestamp();
+}
+
+function buildLeaderboardComponents(eloData, page) {
+  const total = Object.keys(eloData || {}).length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  if (totalPages <= 1) return [];
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`elolb_page_${page - 1}`)
+        .setLabel('← Previous')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page <= 0),
+      new ButtonBuilder()
+        .setCustomId(`elolb_page_${page + 1}`)
+        .setLabel('Next →')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page >= totalPages - 1),
+    ),
+  ];
 }
 
 async function updateEloLeaderboard(client, guildId) {
@@ -386,8 +416,10 @@ const eloLeaderboardCommand = {
 
   async execute(interaction) {
     const data = db.get();
-    const embed = buildEloLeaderboardEmbed(getEloData(data));
-    await interaction.reply({ embeds: [embed] });
+    const eloData = getEloData(data);
+    const embed = buildEloLeaderboardEmbed(eloData, 0);
+    const components = buildLeaderboardComponents(eloData, 0);
+    await interaction.reply({ embeds: [embed], components });
     const msg = await interaction.fetchReply();
     if (!data.eloLeaderboards) data.eloLeaderboards = {};
     data.eloLeaderboards[interaction.guildId] = { channelId: interaction.channelId, messageId: msg.id };
@@ -514,6 +546,7 @@ module.exports = {
   applyMatchStreaks,
   buildMatchEloSummary,
   buildEloLeaderboardEmbed,
+  buildLeaderboardComponents,
   updateEloLeaderboard,
   getTierForElo,
   getEloData,

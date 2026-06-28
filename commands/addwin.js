@@ -54,16 +54,7 @@ module.exports = {
 
     await updateScoreboardMessage(interaction.client, sb);
 
-    // Check achievements for the winner
-    try {
-      const guild = await interaction.client.guilds.fetch(guildId);
-      const newAchs = await checkAchievements(interaction.client, guild, target.id, data);
-      if (newAchs.length) {
-        const { ACHIEVEMENTS } = require('./achievements');
-        const earned = newAchs.map(id => ACHIEVEMENTS.find(a => a.id === id)).filter(Boolean);
-        await interaction.channel.send(`🏅 <@${target.id}> earned: ${earned.map(a => `${a.emoji} **${a.name}**`).join(', ')}!`);
-      }
-    } catch {}
+    // Achievement earning disabled — data preserved for future re-enable
 
     await interaction.reply({ content: `✅ Added **1** win to <@${target.id}> on **${sb.name}**! (Total: ${sb.scores[target.id]})`, ephemeral: true });
   }

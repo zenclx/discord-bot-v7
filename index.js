@@ -689,17 +689,7 @@ client.on('interactionCreate', async interaction => {
       }
     }
 
-    // Check achievements
-    try {
-      const guild = await client.guilds.fetch(match.guildId);
-      const newAchs = await checkAchievements(client, guild, winnerId, data);
-      if (newAchs.length && match.privateChannelId) {
-        const { ACHIEVEMENTS } = require('./commands/achievements');
-        const earned = newAchs.map(id => ACHIEVEMENTS.find(a => a.id === id)).filter(Boolean);
-        const ch = await client.channels.fetch(match.privateChannelId);
-        await ch.send(`🏅 <@${winnerId}> earned: ${earned.map(a => `${a.emoji} **${a.name}**`).join(', ')}!`);
-      }
-    } catch {}
+    // Achievement earning disabled — data preserved for future re-enable
 
     if (match.privateChannelId) {
       try {

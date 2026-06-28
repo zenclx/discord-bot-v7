@@ -261,25 +261,30 @@ function buildEloProfileEmbed(target, player, displayName) {
   const tier = getTierForElo(player.elo || 0);
   const nextTier = TIERS[TIERS.indexOf(tier) - 1] || null;
   const progress = getTierProgress(player, tier, nextTier);
-  const currentRank = `Tier ${tier.tier} | ${formatNumber(tier.min)}+ ELO`;
-  const nextRank = nextTier ? `Tier ${nextTier.tier} | ${formatNumber(nextTier.min)}+ ELO` : 'Max Rank';
-  const remainingLine = nextTier
-    ? `**${formatNumber(progress.remaining)} ELO remaining for ${nextRank}**`
-    : '**Max rank reached**';
+
+  const barLen = 12;
+  const filled = Math.min(barLen, Math.round(progress.progress * barLen));
+  const bar = '▰'.repeat(filled) + '▱'.repeat(barLen - filled);
+  const progressLine = nextTier
+    ? `${bar} **${Math.round(progress.percentage)}%** — ${formatNumber(progress.remaining)} ELO to Tier ${nextTier.tier}`
+    : `${bar} **Max rank reached**`;
+
+  const winRate = (player.wins || 0) + (player.losses || 0) > 0
+    ? Math.round(((player.wins || 0) / ((player.wins || 0) + (player.losses || 0))) * 100)
+    : 0;
 
   return new EmbedBuilder()
     .setColor(tierColor(tier.tier))
-    .setDescription([
-      `**${displayName}**`,
-      `${buildRankBar(progress.progress)} **${progress.percentage}%**`,
-      `Rank: **${currentRank}**`,
-      `ELO: **${formatNumber(player.elo)}**`,
-      `Record: **${player.wins || 0}W / ${player.losses || 0}L**`,
-      `Streak: **${player.currentStreak || 0}** current / **${player.bestStreak || 0}** best`,
-      '',
-      remainingLine,
-    ].join('\n'))
-    .setThumbnail(target.displayAvatarURL({ size: 128 }))
+    .setAuthor({ name: displayName, iconURL: target.displayAvatarURL({ size: 128 }) })
+    .setThumbnail(target.displayAvatarURL({ size: 256 }))
+    .setDescription(`### Tier ${tier.tier} · ${formatNumber(player.elo || 0)} ELO\n${progressLine}`)
+    .addFields(
+      { name: 'Wins', value: `**${player.wins || 0}**`, inline: true },
+      { name: 'Losses', value: `**${player.losses || 0}**`, inline: true },
+      { name: 'Win Rate', value: `**${winRate}%**`, inline: true },
+      { name: 'Current Streak', value: `**${player.currentStreak || 0}W**`, inline: true },
+      { name: 'Best Streak', value: `**${player.bestStreak || 0}W**`, inline: true },
+    )
     .setTimestamp();
 }
 
@@ -313,20 +318,22 @@ function buildEloLeaderboardEmbed(eloData) {
     .sort((a, b) => b.elo - a.elo || b.wins - a.wins)
     .slice(0, 20);
 
+  const medals = ['🥇', '🥈', '🥉'];
+
   const description = sorted.length
     ? sorted.map((p, i) => {
       const tier = getTierForElo(p.elo);
-      const medal = ['🥇', '🥈', '🥉'][i] || `**${i + 1}.**`;
-      const streak = p.currentStreak > 0 ? ` - ${p.currentStreak}W streak` : '';
-      return `${medal} <@${p.userId}> - \`${p.elo} ELO\` - Tier ${tier.tier} - ${p.wins}W/${p.losses}L${streak}`;
+      const rank = medals[i] || `\`${i + 1}.\``;
+      const streak = p.currentStreak >= 3 ? ` 🔥 ${p.currentStreak}W` : '';
+      return `${rank} <@${p.userId}>\n> \`${formatNumber(p.elo)} ELO\` · Tier ${tier.tier} · ${p.wins}W/${p.losses}L${streak}`;
     }).join('\n')
     : 'No ELO data yet. Play some matches!';
 
   return new EmbedBuilder()
-    .setTitle('ELO Leaderboard')
+    .setTitle('🏆 ELO Leaderboard')
     .setColor(0xffd700)
     .setDescription(description)
-    .setFooter({ text: 'Auto-updates after ELO changes | Everyone starts at Tier V' })
+    .setFooter({ text: 'Auto-updates after each match · Everyone starts at Tier V' })
     .setTimestamp();
 }
 

@@ -85,7 +85,7 @@ module.exports = {
     // Check if round is complete
     const roundComplete = match.bracket[round].every(m => m.winner !== null);
     if (roundComplete) {
-      const winners = match.bracket[round].filter(m => !m.bye).map(m => m.winner);
+      const winners = match.bracket[round].map(m => m.winner);
 
       if (winners.length === 1) {
         // Grant finals ELO

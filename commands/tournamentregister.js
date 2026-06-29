@@ -91,9 +91,9 @@ async function handleTourneyRegistration(interaction) {
     .map((r, i) => `**${i + 1}.** ${r.username} — ELO: ${r.elo} (<@${r.discordId}>)`)
     .join('\n');
 
-  const logChannel = await interaction.client.channels.fetch(TOURNEY_LOG_CHANNEL_ID).catch(() => null);
-  if (logChannel) {
-    await logChannel.send({
+  const announceChannel = await interaction.client.channels.fetch(TOURNEY_ANNOUNCE_CHANNEL_ID).catch(() => null);
+  if (announceChannel) {
+    await announceChannel.send({
       embeds: [
         new EmbedBuilder()
           .setTitle(isUpdate ? 'Registration Updated' : 'New Registration')

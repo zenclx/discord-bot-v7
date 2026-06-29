@@ -748,48 +748,51 @@ client.on('interactionCreate', async interaction => {
         db.set(completeData);
         recordHostedEventFromMatch(client, match).catch(error => console.error('recordHostedEventFromMatch complete error:', error.message));
         let finalReplyPromise = null;
+        const { EmbedBuilder } = require('discord.js');
+        const champEntry = bracketRound.find(m => m.winner === champion);
+        const champTag = champEntry
+          ? (champEntry.winner === champEntry.p2 ? champEntry.p2Tag : champEntry.p1Tag) || ''
+          : '';
+        const eloData = getEloData(db.get());
+        const eloSummary = buildMatchEloSummary(match, eloData);
 
         if (match.privateChannelId) {
           try {
             const ch = await client.channels.fetch(match.privateChannelId);
-            const { EmbedBuilder } = require('discord.js');
-            const champEntry = bracketRound.find(m => m.winner === champion);
-            const champTag = champEntry
-              ? (champEntry.winner === champEntry.p2 ? champEntry.p2Tag : champEntry.p1Tag) || ''
-              : '';
-            const eloData = getEloData(db.get());
-            const eloSummary = buildMatchEloSummary(match, eloData);
             const finalEmbed = new EmbedBuilder()
               .setTitle('🏆 Tournament Complete!').setColor(0xffd700)
               .setDescription(`👑 **Champion: <@${champion}>**${champTag ? ` (${champTag})` : ''}\n\nGG to all players!${match.prize ? `\n\n🎁 **Prize:** ${match.prize}` : ''}`)
               .addFields({ name: 'Match ELO Changes', value: eloSummary.slice(0, 1024), inline: false })
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
-            finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
-            const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
-            const logCh = await client.channels.fetch(logChannelId).catch(() => null);
-            if (logCh) {
-              const bracketAttachment = makeBracketAttachment(match);
-              const logEmbed = new EmbedBuilder()
-                .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
-                .setColor(0xffd700)
-                .setDescription(`Champion: <@${champion}>`)
-                .setImage('attachment://bracket.png')
-                .addFields(
-                  { name: 'Host', value: match.hostId ? `<@${match.hostId}>` : 'Unknown', inline: true },
-                  { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
-                )
-                .setTimestamp();
-
-              await logCh.send({
-                embeds: [logEmbed],
-                files: [bracketAttachment],
-                allowedMentions: { parse: [] },
-              });
-            }
           } catch {}
           scheduleChannelDelete(client, match.privateChannelId);
         }
+
+        finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
+
+        try {
+          const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
+          const logCh = await client.channels.fetch(logChannelId).catch(() => null);
+          if (logCh) {
+            const bracketAttachment = makeBracketAttachment(match);
+            const logEmbed = new EmbedBuilder()
+              .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
+              .setColor(0xffd700)
+              .setDescription(`Champion: <@${champion}>`)
+              .setImage('attachment://bracket.png')
+              .addFields(
+                { name: 'Host', value: match.hostId ? `<@${match.hostId}>` : 'Unknown', inline: true },
+                { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
+              )
+              .setTimestamp();
+            await logCh.send({
+              embeds: [logEmbed],
+              files: [bracketAttachment],
+              allowedMentions: { parse: [] },
+            });
+          }
+        } catch (e) { console.error('Match completion log error:', e.message); }
 
         (async () => {
           await applyMatchStreaks(client, match, champion);

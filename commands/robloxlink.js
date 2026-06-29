@@ -106,7 +106,10 @@ async function syncDiscordVerifiedRoles(interaction, target, tier, sync) {
     if (hasStaffRobloxRole(sync) && DISCORD_STAFF_ROLE_ID) mappedRoleIds.push(DISCORD_STAFF_ROLE_ID);
     result.synced = [...new Set(mappedRoleIds)];
 
-    const managedRoleIds = getMappedDiscordRoleIds(interaction.guild, [...MANAGED_ROBLOX_ROLE_IDS]);
+    const managedRoleIds = getMappedDiscordRoleIds(interaction.guild, [
+      ...Object.values(TIER_ROLE_IDS),
+      ...Object.values(STAFF_ROLE_IDS),
+    ]);
     if (DISCORD_STAFF_ROLE_ID) managedRoleIds.push(DISCORD_STAFF_ROLE_ID);
 
     const oldMappedRoles = member.roles.cache.filter(role => managedRoleIds.includes(role.id) && !result.synced.includes(role.id) && !tierRoleIds.includes(role.id));

@@ -175,6 +175,19 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === 'tourney_register_modal') {
+      const { handleTourneyRegistration } = require('./commands/tournamentregister');
+      try { await handleTourneyRegistration(interaction); } catch (e) {
+        console.error('Tournament registration modal error:', e);
+        const p = { content: '❌ Registration failed. Please try again.', flags: 64 };
+        if (interaction.replied || interaction.deferred) await interaction.followUp(p).catch(() => {});
+        else await interaction.reply(p).catch(() => {});
+      }
+    }
+    return;
+  }
+
   let customId = interaction.customId;
 
   if (interaction.isStringSelectMenu()) {

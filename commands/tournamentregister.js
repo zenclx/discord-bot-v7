@@ -8,6 +8,7 @@ const { saveToDiscord } = require('../discordBackup');
 const { buildBracketImage } = require('../bracketImage');
 
 const TOURNEY_LOG_CHANNEL_ID = '1520930139825901822';
+const TOURNEY_ANNOUNCE_CHANNEL_ID = '1413609546865442827';
 const DARK_BLUE = 0x1f4fd8;
 
 function getTournamentReg(data, guildId) {
@@ -86,6 +87,10 @@ async function handleTourneyRegistration(interaction) {
   db.set(data);
   await saveToDiscord(interaction.client);
 
+  const currentList = reg.registrations
+    .map((r, i) => `**${i + 1}.** ${r.username} — ELO: ${r.elo} (<@${r.discordId}>)`)
+    .join('\n');
+
   const logChannel = await interaction.client.channels.fetch(TOURNEY_LOG_CHANNEL_ID).catch(() => null);
   if (logChannel) {
     await logChannel.send({
@@ -97,6 +102,7 @@ async function handleTourneyRegistration(interaction) {
             { name: 'Discord', value: `<@${interaction.user.id}>`, inline: true },
             { name: 'Username', value: username, inline: true },
             { name: 'ELO', value: String(elo), inline: true },
+            { name: `Registered Players (${reg.registrations.length})`, value: currentList.slice(0, 1024) },
           )
           .setTimestamp(),
       ],
@@ -129,18 +135,17 @@ const startRegisterCommand = {
     db.set(data);
     await saveToDiscord(interaction.client);
 
+    const openEmbed = new EmbedBuilder()
+      .setTitle('Tournament Registration Open')
+      .setColor(0x43b581)
+      .setDescription('Registration is now open! Use `/register` to sign up with your username and ELO.')
+      .setTimestamp();
+
     const logChannel = await interaction.client.channels.fetch(TOURNEY_LOG_CHANNEL_ID).catch(() => null);
-    if (logChannel) {
-      await logChannel.send({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle('Tournament Registration Open')
-            .setColor(0x43b581)
-            .setDescription('Registration is now open! Use `/register` to sign up with your username and ELO.')
-            .setTimestamp(),
-        ],
-      });
-    }
+    if (logChannel) await logChannel.send({ embeds: [openEmbed] });
+
+    const announceChannel = await interaction.client.channels.fetch(TOURNEY_ANNOUNCE_CHANNEL_ID).catch(() => null);
+    if (announceChannel) await announceChannel.send({ embeds: [openEmbed] });
 
     await interaction.editReply({ content: 'Tournament registration is now open. Players can use `/register` to sign up.' });
   },
@@ -232,12 +237,16 @@ const endRegisterCommand = {
       .setTimestamp();
 
     const logChannel = await interaction.client.channels.fetch(TOURNEY_LOG_CHANNEL_ID).catch(() => null);
-    if (logChannel) {
-      await logChannel.send({ embeds: [embed], files: [attachment] });
+    if (logChannel) await logChannel.send({ embeds: [embed], files: [attachment] });
+
+    const announceChannel = await interaction.client.channels.fetch(TOURNEY_ANNOUNCE_CHANNEL_ID).catch(() => null);
+    if (announceChannel) {
+      const attachment2 = new AttachmentBuilder(buf, { name: 'bracket.png' });
+      await announceChannel.send({ embeds: [embed], files: [attachment2] });
     }
 
     await interaction.editReply({
-      content: `Registration closed. Bracket generated with **${registrations.length}** players and posted to <#${TOURNEY_LOG_CHANNEL_ID}>.`,
+      content: `Registration closed. Bracket generated with **${registrations.length}** players and posted to <#${TOURNEY_ANNOUNCE_CHANNEL_ID}>.`,
     });
   },
 };

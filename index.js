@@ -772,9 +772,11 @@ client.on('interactionCreate', async interaction => {
         finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
 
         try {
-          const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
-          const logCh = await client.channels.fetch(logChannelId).catch(() => null);
+          const MATCH_COMPLETE_LOG_CHANNEL_ID = '1511889756773027862';
+          const logCh = await client.channels.fetch(MATCH_COMPLETE_LOG_CHANNEL_ID).catch(() => null);
           if (logCh) {
+            const hostUser = match.hostId ? await client.users.fetch(match.hostId).catch(() => null) : null;
+            const hostDisplay = hostUser ? `${hostUser.username} (<@${match.hostId}>)` : (match.hostId ? `<@${match.hostId}>` : 'Unknown');
             const bracketAttachment = makeBracketAttachment(match);
             const logEmbed = new EmbedBuilder()
               .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
@@ -782,7 +784,7 @@ client.on('interactionCreate', async interaction => {
               .setDescription(`Champion: <@${champion}>`)
               .setImage('attachment://bracket.png')
               .addFields(
-                { name: 'Host', value: match.hostId ? `<@${match.hostId}>` : 'Unknown', inline: true },
+                { name: 'Host', value: hostDisplay, inline: true },
                 { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
               )
               .setTimestamp();

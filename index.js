@@ -772,8 +772,7 @@ client.on('interactionCreate', async interaction => {
         finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
 
         try {
-          const MATCH_COMPLETE_LOG_CHANNEL_ID = '1511889756773027862';
-          const logCh = await client.channels.fetch(MATCH_COMPLETE_LOG_CHANNEL_ID).catch(() => null);
+          const logCh = await client.channels.fetch(DEFAULT_LOG_CHANNEL_ID).catch(() => null);
           if (logCh) {
             const hostUser = match.hostId ? await client.users.fetch(match.hostId).catch(() => null) : null;
             const hostDisplay = hostUser ? `${hostUser.username} (<@${match.hostId}>)` : (match.hostId ? `<@${match.hostId}>` : 'Unknown');

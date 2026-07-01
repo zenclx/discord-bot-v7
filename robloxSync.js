@@ -349,10 +349,6 @@ async function addRobloxRolesForDiscordUser(client, guildId, discordUserId, role
   const invalidRoleIds = uniqueRoleIds.filter(roleId => !knownRoleIds.has(roleId));
   if (invalidRoleIds.length) throw new Error(`Unknown Roblox role ID: ${invalidRoleIds.join(', ')}`);
 
-  const tierRoleIds = Object.values(TIER_ROLE_IDS);
-  const selectedTierRoles = uniqueRoleIds.filter(roleId => tierRoleIds.includes(roleId));
-  if (selectedTierRoles.length > 1) throw new Error('Choose only one tier role at a time.');
-
   const membership = await getGroupMembership(link.robloxUserId);
   if (!membership) throw new Error(`${link.robloxUsername || link.robloxUserId} is not in Roblox group ${ROBLOX_GROUP_ID}.`);
 
@@ -363,10 +359,7 @@ async function addRobloxRolesForDiscordUser(client, guildId, discordUserId, role
   }
 
   const currentRoles = getMembershipRoles(membership);
-  const baseRoles = selectedTierRoles.length
-    ? currentRoles.filter(roleId => !tierRoleIds.includes(roleId))
-    : currentRoles;
-  const desiredRoles = [...new Set([...baseRoles, ...uniqueRoleIds])];
+  const desiredRoles = [...new Set([...currentRoles, ...uniqueRoleIds])];
   const added = uniqueRoleIds.filter(roleId => !currentRoles.includes(roleId));
   const removed = currentRoles.filter(roleId => !desiredRoles.includes(roleId));
 

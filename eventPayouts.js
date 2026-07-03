@@ -470,6 +470,7 @@ module.exports = {
   COORDINATOR_RANKS,
   DEFAULT_EVENT_LOG_CHANNEL_ID,
   DEFAULT_PAYOUT_REPORT_CHANNEL_ID,
+  getEventLogChannelId,
   getGuildPayoutStore,
   getGuildSettings,
   hasPayoutPermission,

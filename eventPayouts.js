@@ -177,11 +177,8 @@ async function saveEventRecord(client, guildId, event) {
 
 async function sendEventLog(client, guildId, event) {
   const data = db.get();
-  const channelIds = [...new Set([
-    DEFAULT_EVENT_LOG_CHANNEL_ID,
-    getEventLogChannelId(data, guildId),
-  ].filter(Boolean))];
-  if (!channelIds.length) return;
+  const channelId = getEventLogChannelId(data, guildId);
+  if (!channelId) return;
   const store = getGuildPayoutStore(data, guildId);
   const totalHosted = event.hostId
     ? store.events.filter(item => item.hostId === event.hostId).length
@@ -200,16 +197,14 @@ async function sendEventLog(client, guildId, event) {
     )
     .setTimestamp(event.timestamp || Date.now());
 
-  for (const channelId of channelIds) {
-    const channel = await client.channels.fetch(channelId).catch(error => {
-      console.error(`Event log channel fetch failed for ${channelId}:`, error.message);
-      return null;
-    });
-    if (!channel) continue;
-    await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(error => {
-      console.error(`Event log send failed for ${channelId}:`, error.message);
-    });
-  }
+  const channel = await client.channels.fetch(channelId).catch(error => {
+    console.error(`Event log channel fetch failed for ${channelId}:`, error.message);
+    return null;
+  });
+  if (!channel) return;
+  await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(error => {
+    console.error(`Event log send failed for ${channelId}:`, error.message);
+  });
 }
 
 async function recordHostedEventFromMatch(client, match) {

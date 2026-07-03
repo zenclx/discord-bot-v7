@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('../database');
-const { getEventLogChannelId, DEFAULT_EVENT_LOG_CHANNEL_ID } = require('../eventPayouts');
+const { getEventLogChannelId } = require('../eventPayouts');
+const { buildBracketImage } = require('../bracketImage');
 
 const DEFAULT_MATCH_LOG_CHANNEL_ID = '1384695119243907132';
 
@@ -19,9 +20,17 @@ module.exports = {
 
     const results = [];
 
-    // Test match log channel
+    // Test match log channel (with bracket image)
     try {
       const ch = await interaction.client.channels.fetch(matchLogId);
+      const fakeBracket = [[{ p1: 'Player1', p2: 'Player2', p1Tag: 'Player1 (1200)', p2Tag: 'Player2 (1100)', winner: 'Player1', bye: false }]];
+      let bracketAttachment = null;
+      try {
+        const buf = buildBracketImage(fakeBracket, 0, null);
+        bracketAttachment = new AttachmentBuilder(buf, { name: 'bracket.png' });
+      } catch (imgErr) {
+        results.push(`⚠️ Bracket image generation failed: ${imgErr.message}`);
+      }
       const testEmbed = new EmbedBuilder()
         .setTitle('Match #? Complete (TEST)')
         .setColor(0xffd700)
@@ -31,8 +40,9 @@ module.exports = {
           { name: 'ELO Changes', value: 'test', inline: false },
         )
         .setTimestamp();
-      await ch.send({ embeds: [testEmbed], allowedMentions: { parse: [] } });
-      results.push(`✅ **Match log** (<#${matchLogId}>): sent successfully`);
+      if (bracketAttachment) testEmbed.setImage('attachment://bracket.png');
+      await ch.send({ embeds: [testEmbed], files: bracketAttachment ? [bracketAttachment] : [], allowedMentions: { parse: [] } });
+      results.push(`✅ **Match log** (<#${matchLogId}>): sent successfully${bracketAttachment ? ' (with bracket image)' : ' (no bracket image)'}`);
     } catch (e) {
       results.push(`❌ **Match log** (\`${matchLogId}\`): ${e.message}`);
     }

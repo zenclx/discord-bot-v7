@@ -772,24 +772,26 @@ client.on('interactionCreate', async interaction => {
         finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
 
         try {
-          const logCh = await client.channels.fetch(DEFAULT_LOG_CHANNEL_ID).catch(() => null);
+          const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
+          const logCh = await client.channels.fetch(logChannelId).catch(() => null);
           if (logCh) {
             const hostUser = match.hostId ? await client.users.fetch(match.hostId).catch(() => null) : null;
             const hostDisplay = hostUser ? `${hostUser.username} (<@${match.hostId}>)` : (match.hostId ? `<@${match.hostId}>` : 'Unknown');
-            const bracketAttachment = makeBracketAttachment(match);
+            let bracketAttachment = null;
+            try { bracketAttachment = makeBracketAttachment(match); } catch (imgErr) { console.error('Bracket image failed:', imgErr.message); }
             const logEmbed = new EmbedBuilder()
               .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
               .setColor(0xffd700)
               .setDescription(`Champion: <@${champion}>`)
-              .setImage('attachment://bracket.png')
               .addFields(
                 { name: 'Host', value: hostDisplay, inline: true },
                 { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
               )
               .setTimestamp();
+            if (bracketAttachment) logEmbed.setImage('attachment://bracket.png');
             await logCh.send({
               embeds: [logEmbed],
-              files: [bracketAttachment],
+              files: bracketAttachment ? [bracketAttachment] : [],
               allowedMentions: { parse: [] },
             });
           }

@@ -184,16 +184,20 @@ async function sendEventLog(client, guildId, event) {
     ? store.events.filter(item => item.hostId === event.hostId).length
     : 0;
 
+  const hostUser = event.hostId ? await client.users.fetch(event.hostId).catch(() => null) : null;
+  const hostDisplay = hostUser
+    ? `${hostUser.username} (<@${event.hostId}>)`
+    : (event.hostId ? `<@${event.hostId}>` : 'Missing host');
+
   const embed = new EmbedBuilder()
     .setTitle('Event Host Logged')
     .setColor(0x1f4fd8)
     .addFields(
-      { name: 'Host', value: event.hostId ? `<@${event.hostId}>` : 'Missing host', inline: true },
-      { name: 'Roblox', value: event.robloxUserId ? `${event.robloxUsername || event.robloxUserId} (${event.robloxUserId})` : 'Missing Roblox ID', inline: true },
+      { name: 'Host', value: hostDisplay, inline: true },
       { name: 'Prize', value: event.prize || 'Missing prize', inline: true },
       { name: 'Attendees', value: event.attendees == null ? 'Missing attendance' : String(event.attendees), inline: true },
       { name: 'Total Hosted', value: event.hostId ? String(totalHosted) : 'Unknown', inline: true },
-      { name: 'Source', value: event.matchId ? `Match ${event.matchId}` : event.source || 'manual', inline: true },
+      { name: 'Roblox', value: event.robloxUserId ? `${event.robloxUsername || event.robloxUserId} (${event.robloxUserId})` : 'Not linked', inline: true },
     )
     .setTimestamp(event.timestamp || Date.now());
 

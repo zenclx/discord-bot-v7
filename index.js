@@ -854,4 +854,16 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-client.login(DISCORD_TOKEN);
+process.on('unhandledRejection', err => {
+  console.error('Unhandled rejection:', err);
+});
+
+client.on('error', err => console.error('Discord client error:', err.message));
+client.on('warn', msg => console.warn('Discord client warning:', msg));
+client.on('disconnect', () => console.warn('Discord client disconnected'));
+
+client.login(DISCORD_TOKEN).catch(err => {
+  console.error('❌ Failed to login to Discord:', err.message);
+  console.error('Check that DISCORD_TOKEN is correct in Render environment variables.');
+  process.exit(1);
+});

@@ -862,7 +862,16 @@ client.on('error', err => console.error('Discord client error:', err.message));
 client.on('warn', msg => console.warn('Discord client warning:', msg));
 client.on('disconnect', () => console.warn('Discord client disconnected'));
 
-client.login(DISCORD_TOKEN).catch(err => {
+console.log(`Attempting Discord login... (token set: ${!!DISCORD_TOKEN}, length: ${DISCORD_TOKEN.length})`);
+const loginTimeout = setTimeout(() => {
+  console.error('❌ Discord login timed out after 15s — token may be invalid or Discord gateway unreachable.');
+  process.exit(1);
+}, 15000);
+
+client.login(DISCORD_TOKEN).then(() => {
+  clearTimeout(loginTimeout);
+}).catch(err => {
+  clearTimeout(loginTimeout);
   console.error('❌ Failed to login to Discord:', err.message);
   console.error('Check that DISCORD_TOKEN is correct in Render environment variables.');
   process.exit(1);

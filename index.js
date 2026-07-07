@@ -870,16 +870,21 @@ https.get('https://discord.com/api/v10/gateway', res => {
 });
 
 console.log(`Attempting Discord login... (token set: ${!!DISCORD_TOKEN}, length: ${DISCORD_TOKEN.length})`);
-const loginTimeout = setTimeout(() => {
-  console.error('❌ Discord login timed out after 15s — token may be invalid or Discord gateway unreachable.');
-  process.exit(1);
-}, 15000);
 
-client.login(DISCORD_TOKEN).then(() => {
-  clearTimeout(loginTimeout);
-}).catch(err => {
-  clearTimeout(loginTimeout);
-  console.error('❌ Failed to login to Discord:', err.message);
-  console.error('Check that DISCORD_TOKEN is correct in Render environment variables.');
-  process.exit(1);
-});
+async function loginWithBackoff(attempt = 1) {
+  const maxAttempts = 10;
+  try {
+    await client.login(DISCORD_TOKEN);
+  } catch (err) {
+    console.error(`❌ Discord login failed (attempt ${attempt}/${maxAttempts}): ${err.message}`);
+    if (attempt >= maxAttempts) {
+      console.error('Max login attempts reached. Giving up.');
+      return;
+    }
+    const delay = Math.min(60000, 5000 * Math.pow(2, attempt - 1));
+    console.log(`Retrying in ${delay / 1000}s...`);
+    setTimeout(() => loginWithBackoff(attempt + 1), delay);
+  }
+}
+
+loginWithBackoff();

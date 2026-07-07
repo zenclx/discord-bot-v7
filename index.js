@@ -873,16 +873,21 @@ console.log(`Attempting Discord login... (token set: ${!!DISCORD_TOKEN}, length:
 
 async function loginWithBackoff(attempt = 1) {
   const maxAttempts = 10;
+  const attemptTimeout = 30000;
   try {
-    await client.login(DISCORD_TOKEN);
+    await Promise.race([
+      client.login(DISCORD_TOKEN),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('login timed out')), attemptTimeout)),
+    ]);
   } catch (err) {
     console.error(`❌ Discord login failed (attempt ${attempt}/${maxAttempts}): ${err.message}`);
     if (attempt >= maxAttempts) {
-      console.error('Max login attempts reached. Giving up.');
+      console.error('Max login attempts reached. Giving up — check token and network.');
       return;
     }
-    const delay = Math.min(60000, 5000 * Math.pow(2, attempt - 1));
-    console.log(`Retrying in ${delay / 1000}s...`);
+    client.destroy();
+    const delay = Math.min(120000, 10000 * Math.pow(2, attempt - 1));
+    console.log(`Retrying in ${Math.round(delay / 1000)}s...`);
     setTimeout(() => loginWithBackoff(attempt + 1), delay);
   }
 }

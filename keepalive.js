@@ -17,4 +17,12 @@ server.listen(PORT, () => {
   console.log(`Keep-alive server running on port ${PORT}`);
 });
 
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+if (RENDER_URL) {
+  const https = require('https');
+  setInterval(() => {
+    https.get(`${RENDER_URL}/health`).on('error', () => {});
+  }, 10 * 60 * 1000); // ping every 10 minutes
+}
+
 module.exports = server;

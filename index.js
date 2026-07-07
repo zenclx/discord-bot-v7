@@ -872,22 +872,22 @@ https.get('https://discord.com/api/v10/gateway', res => {
 console.log(`Attempting Discord login... (token set: ${!!DISCORD_TOKEN}, length: ${DISCORD_TOKEN.length})`);
 
 async function loginWithBackoff(attempt = 1) {
-  const maxAttempts = 10;
+  const maxAttempts = 20;
   const attemptTimeout = 30000;
+  console.log(`[login] Attempt ${attempt}/${maxAttempts}...`);
   try {
     await Promise.race([
       client.login(DISCORD_TOKEN),
       new Promise((_, reject) => setTimeout(() => reject(new Error('login timed out')), attemptTimeout)),
     ]);
   } catch (err) {
-    console.error(`❌ Discord login failed (attempt ${attempt}/${maxAttempts}): ${err.message}`);
+    console.error(`[login] Attempt ${attempt} failed: ${err.message}`);
     if (attempt >= maxAttempts) {
-      console.error('Max login attempts reached. Giving up — check token and network.');
+      console.error('[login] Max attempts reached. Giving up — check token and network.');
       return;
     }
-    client.destroy();
-    const delay = Math.min(120000, 10000 * Math.pow(2, attempt - 1));
-    console.log(`Retrying in ${Math.round(delay / 1000)}s...`);
+    const delay = Math.min(300000, 15000 * Math.pow(2, attempt - 1));
+    console.log(`[login] Retrying in ${Math.round(delay / 1000)}s...`);
     setTimeout(() => loginWithBackoff(attempt + 1), delay);
   }
 }

@@ -178,6 +178,7 @@ async function saveEventRecord(client, guildId, event) {
 async function sendEventLog(client, guildId, event) {
   const data = db.get();
   const channelId = getEventLogChannelId(data, guildId);
+  console.log(`[hostLog] sendEventLog called: guildId=${guildId} channelId=${channelId}`);
   if (!channelId) return;
   const store = getGuildPayoutStore(data, guildId);
   const totalHosted = event.hostId
@@ -205,14 +206,23 @@ async function sendEventLog(client, guildId, event) {
     console.error(`Event log channel fetch failed for ${channelId}:`, error.message);
     return null;
   });
-  if (!channel) return;
+  if (!channel) {
+    console.error(`[hostLog] Channel ${channelId} not found or not accessible`);
+    return;
+  }
+  console.log(`[hostLog] Sending to channel ${channelId}...`);
   await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(error => {
-    console.error(`Event log send failed for ${channelId}:`, error.message);
+    console.error(`[hostLog] Send failed for ${channelId}:`, error.message);
   });
+  console.log(`[hostLog] Sent successfully to ${channelId}`);
 }
 
 async function recordHostedEventFromMatch(client, match) {
-  if (!match?.guildId || !match?.hostId || !match?.id) return null;
+  console.log(`[hostLog] recordHostedEventFromMatch called: guildId=${match?.guildId} hostId=${match?.hostId} id=${match?.id}`);
+  if (!match?.guildId || !match?.hostId || !match?.id) {
+    console.error(`[hostLog] Skipping — missing required field`);
+    return null;
+  }
   const data = db.get();
   const store = getGuildPayoutStore(data, match.guildId);
   const existing = store.events.find(event => event.matchId === match.id);

@@ -862,6 +862,13 @@ client.on('error', err => console.error('Discord client error:', err.message));
 client.on('warn', msg => console.warn('Discord client warning:', msg));
 client.on('disconnect', () => console.warn('Discord client disconnected'));
 
+const https = require('https');
+https.get('https://discord.com/api/v10/gateway', res => {
+  console.log(`Discord API reachable: HTTP ${res.statusCode}`);
+}).on('error', err => {
+  console.error(`❌ Cannot reach Discord API: ${err.message} — Render may be IP-blocked by Discord.`);
+});
+
 console.log(`Attempting Discord login... (token set: ${!!DISCORD_TOKEN}, length: ${DISCORD_TOKEN.length})`);
 const loginTimeout = setTimeout(() => {
   console.error('❌ Discord login timed out after 15s — token may be invalid or Discord gateway unreachable.');

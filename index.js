@@ -154,6 +154,7 @@ function resetMatchCounter(guildId) {
 }
 
 client.on('interactionCreate', async interaction => {
+  console.log(`[interaction] type=${interaction.type} name=${interaction.commandName ?? interaction.customId ?? '?'}`);
   // Autocomplete
   if (interaction.isAutocomplete()) {
     const cmd = client.commands.get(interaction.commandName);

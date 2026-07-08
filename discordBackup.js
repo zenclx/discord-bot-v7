@@ -138,7 +138,7 @@ function scheduleDiscordBackup(client) {
   clearTimeout(backupTimer);
   backupTimer = setTimeout(() => {
     saveToDiscord(client).catch(error => console.error('Discord backup save failed:', error.message));
-  }, 1500);
+  }, 30000);
 }
 
 module.exports = { restoreFromDiscord, saveToDiscord, scheduleDiscordBackup };

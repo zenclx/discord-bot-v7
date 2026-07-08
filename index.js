@@ -26,7 +26,7 @@ require('dotenv').config();
 require('./keepalive');
 const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
 const db = require('./database');
-const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup');
+const { restoreFromDiscord, saveToDiscord, scheduleDiscordBackup } = require('./discordBackup');
 const { buildScoreboardEmbed } = require('./utils');
 const { loadCommands } = require('./commands/registry');
 const { sendStaffAuditLog } = require('./auditLog');
@@ -127,7 +127,7 @@ function restoreScheduledMatches() {
   } catch {}
 }
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   await restoreFromDiscord(client);
   db.onSet(() => scheduleDiscordBackup(client));
@@ -154,7 +154,6 @@ function resetMatchCounter(guildId) {
 }
 
 client.on('interactionCreate', async interaction => {
-  console.log(`[interaction] type=${interaction.type} name=${interaction.commandName ?? interaction.customId ?? '?'}`);
   // Autocomplete
   if (interaction.isAutocomplete()) {
     const cmd = client.commands.get(interaction.commandName);
@@ -874,10 +873,36 @@ process.on('uncaughtException', err => {
 
 client.on('error', err => console.error('Discord client error:', err.message));
 client.on('warn', msg => console.warn('Discord client warning:', msg));
-client.on('disconnect', () => console.warn('Discord client disconnected'));
-client.on('shardDisconnect', (event, id) => console.warn(`[ws] Shard ${id} disconnected: code=${event.code} reason=${event.reason || 'none'}`));
+
+// Reconnect watchdog: if the WebSocket drops and Discord.js can't reconnect within
+// 90 seconds, exit so Render restarts with a fresh process. Without this, the HTTP
+// keep-alive server stays up (preventing a Render restart) while the bot is offline.
+let reconnectWatchdog = null;
+function armReconnectWatchdog() {
+  clearTimeout(reconnectWatchdog);
+  reconnectWatchdog = setTimeout(() => {
+    console.error('[ws] Failed to reconnect within 90s — restarting process...');
+    process.exit(1);
+  }, 90000);
+}
+function cancelReconnectWatchdog() {
+  clearTimeout(reconnectWatchdog);
+  reconnectWatchdog = null;
+}
+
+client.on('shardDisconnect', (event, id) => {
+  console.warn(`[ws] Shard ${id} disconnected: code=${event.code} reason=${event.reason || 'none'}`);
+  armReconnectWatchdog();
+});
 client.on('shardReconnecting', id => console.log(`[ws] Shard ${id} reconnecting...`));
-client.on('shardResume', (id, replayed) => console.log(`[ws] Shard ${id} resumed, replayed ${replayed} events`));
+client.on('shardResume', (id, replayed) => {
+  console.log(`[ws] Shard ${id} resumed, replayed ${replayed} events`);
+  cancelReconnectWatchdog();
+});
+client.on('shardReady', id => {
+  console.log(`[ws] Shard ${id} ready`);
+  cancelReconnectWatchdog();
+});
 client.on('shardError', (err, id) => console.error(`[ws] Shard ${id} error: ${err.message}`));
 client.on('invalidated', () => {
   console.error('[ws] Session invalidated by Discord — restarting...');

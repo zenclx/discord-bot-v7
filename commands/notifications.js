@@ -32,7 +32,7 @@ module.exports = {
     const settings = getUserNotificationSettings(data, interaction.guildId, interaction.user.id);
     settings.botNotificationsDisabled = setting === 'off';
     db.set(data);
-    await saveToDiscord(interaction.client).catch(error => console.error('saveToDiscord notifications failed:', error.message));
+    saveToDiscord(interaction.client).catch(error => console.error('saveToDiscord notifications failed:', error.message));
 
     return interaction.reply({
       content: setting === 'off'

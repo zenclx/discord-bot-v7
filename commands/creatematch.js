@@ -751,13 +751,15 @@ async function startCheckIn(client, matchId) {
     } catch {}
     if (reminderCount >= 5) {
       clearInterval(interval);
-      await startBracket(client, matchId);
+      try { await startBracket(client, matchId); }
+      catch (e) { console.error('startBracket (checkin reminders) failed:', e.message); }
     }
   }, 60 * 1000);
 
   const timer = setTimeout(async () => {
     clearInterval(interval);
-    await startBracket(client, matchId);
+    try { await startBracket(client, matchId); }
+    catch (e) { console.error('startBracket (checkin timeout) failed:', e.message); }
   }, CHECKIN_DURATION_MS);
 
   timers.set(matchId, { ...(timers.get(matchId) || {}), checkinTimer: timer, checkinInterval: interval });
@@ -1062,7 +1064,8 @@ module.exports = {
 
     const timer = setTimeout(async () => {
       clearInterval(intervalId);
-      await startBracket(interaction.client, matchId);
+      try { await startBracket(interaction.client, matchId); }
+      catch (e) { console.error('startBracket (queue timeout) failed:', e.message); }
     }, QUEUE_DURATION_MS);
 
     timers.set(matchId, { timer, interval: intervalId });

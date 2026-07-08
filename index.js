@@ -24,6 +24,14 @@ async function refreshEloLeaderboard(channel, eloData) {
 
 require('dotenv').config();
 require('./keepalive');
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+});
+
 const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
 const db = require('./database');
 const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup');
@@ -466,7 +474,11 @@ client.on('interactionCreate', async interaction => {
     const t = timers.get(matchId);
     if (t) {
       clearTimeout(t.timer);
-      const newTimer = setTimeout(async () => { clearInterval(t.interval); await startBracket(client, matchId); }, match.endsAt - Date.now());
+      const newTimer = setTimeout(async () => {
+        clearInterval(t.interval);
+        try { await startBracket(client, matchId); }
+        catch (e) { console.error('startBracket (addminute) failed:', e.message); }
+      }, match.endsAt - Date.now());
       timers.set(matchId, { ...t, timer: newTimer });
     }
     return interaction.update({ embeds: [buildQueueEmbed(match)], components: makeQueueRows(matchId) });
@@ -736,16 +748,17 @@ client.on('interactionCreate', async interaction => {
         recordHostedEventFromMatch(client, match).catch(error => console.error('recordHostedEventFromMatch complete error:', error.message));
         let finalReplyPromise = null;
 
+        const { EmbedBuilder } = require('discord.js');
+        const champEntry = bracketRound.find(m => m.winner === champion);
+        const champTag = champEntry
+          ? (champEntry.winner === champEntry.p2 ? champEntry.p2Tag : champEntry.p1Tag) || ''
+          : '';
+        const eloData = getEloData(db.get());
+        const eloSummary = buildMatchEloSummary(match, eloData);
+
         if (match.privateChannelId) {
           try {
             const ch = await client.channels.fetch(match.privateChannelId);
-            const { EmbedBuilder } = require('discord.js');
-            const champEntry = bracketRound.find(m => m.winner === champion);
-            const champTag = champEntry
-              ? (champEntry.winner === champEntry.p2 ? champEntry.p2Tag : champEntry.p1Tag) || ''
-              : '';
-            const eloData = getEloData(db.get());
-            const eloSummary = buildMatchEloSummary(match, eloData);
             const finalEmbed = new EmbedBuilder()
               .setTitle('🏆 Tournament Complete!').setColor(0xffd700)
               .setDescription(`👑 **Champion: <@${champion}>**${champTag ? ` (${champTag})` : ''}\n\nGG to all players!${match.prize ? `\n\n🎁 **Prize:** ${match.prize}` : ''}`)
@@ -753,29 +766,38 @@ client.on('interactionCreate', async interaction => {
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
             finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
-            const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
-            const logCh = await client.channels.fetch(logChannelId).catch(() => null);
-            if (logCh) {
-              const bracketAttachment = makeBracketAttachment(match);
-              const logEmbed = new EmbedBuilder()
-                .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
-                .setColor(0xffd700)
-                .setDescription(`Champion: <@${champion}>`)
-                .setImage('attachment://bracket.png')
-                .addFields(
-                  { name: 'Host', value: match.hostId ? `<@${match.hostId}>` : 'Unknown', inline: true },
-                  { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
-                )
-                .setTimestamp();
-
-              await logCh.send({
-                embeds: [logEmbed],
-                files: [bracketAttachment],
-                allowedMentions: { parse: [] },
-              });
-            }
-          } catch {}
+          } catch (e) {
+            console.error('Failed to post tournament-complete message to private match channel:', e.message);
+          }
           scheduleChannelDelete(client, match.privateChannelId);
+        }
+
+        try {
+          const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
+          const logCh = await client.channels.fetch(logChannelId).catch(() => null);
+          if (logCh) {
+            const bracketAttachment = makeBracketAttachment(match);
+            const logEmbed = new EmbedBuilder()
+              .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
+              .setColor(0xffd700)
+              .setDescription(`Champion: <@${champion}>`)
+              .setImage('attachment://bracket.png')
+              .addFields(
+                { name: 'Host', value: match.hostId ? `<@${match.hostId}>` : 'Unknown', inline: true },
+                { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
+              )
+              .setTimestamp();
+
+            await logCh.send({
+              embeds: [logEmbed],
+              files: [bracketAttachment],
+              allowedMentions: { parse: [] },
+            });
+          } else {
+            console.error(`Match log channel ${logChannelId} could not be fetched for guild ${match.guildId}.`);
+          }
+        } catch (e) {
+          console.error('Failed to post match result to log channel:', e.message);
         }
 
         (async () => {

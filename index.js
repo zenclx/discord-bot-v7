@@ -875,6 +875,14 @@ process.on('uncaughtException', err => {
 client.on('error', err => console.error('Discord client error:', err.message));
 client.on('warn', msg => console.warn('Discord client warning:', msg));
 client.on('disconnect', () => console.warn('Discord client disconnected'));
+client.on('shardDisconnect', (event, id) => console.warn(`[ws] Shard ${id} disconnected: code=${event.code} reason=${event.reason || 'none'}`));
+client.on('shardReconnecting', id => console.log(`[ws] Shard ${id} reconnecting...`));
+client.on('shardResume', (id, replayed) => console.log(`[ws] Shard ${id} resumed, replayed ${replayed} events`));
+client.on('shardError', (err, id) => console.error(`[ws] Shard ${id} error: ${err.message}`));
+client.on('invalidated', () => {
+  console.error('[ws] Session invalidated by Discord — restarting...');
+  process.exit(1);
+});
 
 const https = require('https');
 https.get('https://discord.com/api/v10/gateway', res => {

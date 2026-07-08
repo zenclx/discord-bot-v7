@@ -899,7 +899,22 @@ https.get('https://discord.com/api/v10/gateway', res => {
 
 console.log(`Attempting Discord login... (token set: ${!!DISCORD_TOKEN}, length: ${DISCORD_TOKEN.length})`);
 
-async function loginWithBackoff(attempt = 1) {
+// Persist attempt count across process restarts so backoff actually increases.
+const fs = require('fs');
+const ATTEMPT_FILE = '/tmp/discord_login_attempt';
+
+function readAttempt() {
+  try { return Math.max(1, parseInt(fs.readFileSync(ATTEMPT_FILE, 'utf8')) || 1); } catch { return 1; }
+}
+function writeAttempt(n) {
+  try { fs.writeFileSync(ATTEMPT_FILE, String(n)); } catch {}
+}
+function clearAttempt() {
+  try { fs.unlinkSync(ATTEMPT_FILE); } catch {}
+}
+
+async function loginWithBackoff() {
+  const attempt = readAttempt();
   const maxAttempts = 20;
   const attemptTimeout = 30000;
   console.log(`[login] Attempt ${attempt}/${maxAttempts}...`);
@@ -908,16 +923,19 @@ async function loginWithBackoff(attempt = 1) {
       client.login(DISCORD_TOKEN),
       new Promise((_, reject) => setTimeout(() => reject(new Error('login timed out')), attemptTimeout)),
     ]);
+    clearAttempt();
   } catch (err) {
     console.error(`[login] Attempt ${attempt} failed: ${err.message}`);
     if (attempt >= maxAttempts) {
       console.error('[login] Max attempts reached. Exiting.');
+      clearAttempt();
       process.exit(1);
     }
-    // Exit and let Render restart with a fresh process — retrying client.login()
-    // on the same Discord.js Client instance after a timeout gets permanently stuck
-    // because the WebSocket manager is still in CONNECTING state from the prior attempt.
-    const delay = Math.min(300000, 15000 * Math.pow(2, attempt - 1));
+    writeAttempt(attempt + 1);
+    // Exit so Render restarts with a fresh Discord.js Client — calling login()
+    // again on the same client instance gets permanently stuck because the
+    // WebSocketManager stays in CONNECTING state from the prior attempt.
+    const delay = Math.min(300000, 60000 * Math.pow(2, attempt - 1));
     console.log(`[login] Waiting ${Math.round(delay / 1000)}s then restarting...`);
     setTimeout(() => process.exit(1), delay);
   }

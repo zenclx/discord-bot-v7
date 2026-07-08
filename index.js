@@ -903,12 +903,15 @@ async function loginWithBackoff(attempt = 1) {
   } catch (err) {
     console.error(`[login] Attempt ${attempt} failed: ${err.message}`);
     if (attempt >= maxAttempts) {
-      console.error('[login] Max attempts reached. Giving up — check token and network.');
-      return;
+      console.error('[login] Max attempts reached. Exiting.');
+      process.exit(1);
     }
+    // Exit and let Render restart with a fresh process — retrying client.login()
+    // on the same Discord.js Client instance after a timeout gets permanently stuck
+    // because the WebSocket manager is still in CONNECTING state from the prior attempt.
     const delay = Math.min(300000, 15000 * Math.pow(2, attempt - 1));
-    console.log(`[login] Retrying in ${Math.round(delay / 1000)}s...`);
-    setTimeout(() => loginWithBackoff(attempt + 1), delay);
+    console.log(`[login] Waiting ${Math.round(delay / 1000)}s then restarting...`);
+    setTimeout(() => process.exit(1), delay);
   }
 }
 

@@ -877,7 +877,13 @@ client.on('disconnect', () => console.warn('Discord client disconnected'));
 
 const https = require('https');
 https.get('https://discord.com/api/v10/gateway', res => {
-  console.log(`Discord API reachable: HTTP ${res.statusCode}`);
+  if (res.statusCode === 200) {
+    console.log(`Discord API reachable: HTTP ${res.statusCode}`);
+  } else if (res.statusCode === 429) {
+    console.error(`⚠️ Discord API rate-limited this request (HTTP 429) — Render's outbound IP may be throttled or blocked by Discord.`);
+  } else {
+    console.error(`⚠️ Discord API returned unexpected status: HTTP ${res.statusCode}`);
+  }
 }).on('error', err => {
   console.error(`❌ Cannot reach Discord API: ${err.message} — Render may be IP-blocked by Discord.`);
 });

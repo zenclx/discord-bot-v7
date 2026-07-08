@@ -177,43 +177,52 @@ async function saveEventRecord(client, guildId, event) {
 
 async function sendEventLog(client, guildId, event) {
   const data = db.get();
-  const channelIds = [...new Set([
-    DEFAULT_EVENT_LOG_CHANNEL_ID,
-    getEventLogChannelId(data, guildId),
-  ].filter(Boolean))];
-  if (!channelIds.length) return;
+  const channelId = getEventLogChannelId(data, guildId);
+  console.log(`[hostLog] sendEventLog called: guildId=${guildId} channelId=${channelId}`);
+  if (!channelId) return;
   const store = getGuildPayoutStore(data, guildId);
   const totalHosted = event.hostId
     ? store.events.filter(item => item.hostId === event.hostId).length
     : 0;
 
+  const hostUser = event.hostId ? await client.users.fetch(event.hostId).catch(() => null) : null;
+  const hostDisplay = hostUser
+    ? `${hostUser.username} (<@${event.hostId}>)`
+    : (event.hostId ? `<@${event.hostId}>` : 'Missing host');
+
   const embed = new EmbedBuilder()
     .setTitle('Event Host Logged')
     .setColor(0x1f4fd8)
     .addFields(
-      { name: 'Host', value: event.hostId ? `<@${event.hostId}>` : 'Missing host', inline: true },
-      { name: 'Roblox', value: event.robloxUserId ? `${event.robloxUsername || event.robloxUserId} (${event.robloxUserId})` : 'Missing Roblox ID', inline: true },
+      { name: 'Host', value: hostDisplay, inline: true },
       { name: 'Prize', value: event.prize || 'Missing prize', inline: true },
       { name: 'Attendees', value: event.attendees == null ? 'Missing attendance' : String(event.attendees), inline: true },
       { name: 'Total Hosted', value: event.hostId ? String(totalHosted) : 'Unknown', inline: true },
-      { name: 'Source', value: event.matchId ? `Match ${event.matchId}` : event.source || 'manual', inline: true },
+      { name: 'Roblox', value: event.robloxUserId ? `${event.robloxUsername || event.robloxUserId} (${event.robloxUserId})` : 'Not linked', inline: true },
     )
     .setTimestamp(event.timestamp || Date.now());
 
-  for (const channelId of channelIds) {
-    const channel = await client.channels.fetch(channelId).catch(error => {
-      console.error(`Event log channel fetch failed for ${channelId}:`, error.message);
-      return null;
-    });
-    if (!channel) continue;
-    await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(error => {
-      console.error(`Event log send failed for ${channelId}:`, error.message);
-    });
+  const channel = await client.channels.fetch(channelId).catch(error => {
+    console.error(`Event log channel fetch failed for ${channelId}:`, error.message);
+    return null;
+  });
+  if (!channel) {
+    console.error(`[hostLog] Channel ${channelId} not found or not accessible`);
+    return;
   }
+  console.log(`[hostLog] Sending to channel ${channelId}...`);
+  await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(error => {
+    console.error(`[hostLog] Send failed for ${channelId}:`, error.message);
+  });
+  console.log(`[hostLog] Sent successfully to ${channelId}`);
 }
 
 async function recordHostedEventFromMatch(client, match) {
-  if (!match?.guildId || !match?.hostId || !match?.id) return null;
+  console.log(`[hostLog] recordHostedEventFromMatch called: guildId=${match?.guildId} hostId=${match?.hostId} id=${match?.id}`);
+  if (!match?.guildId || !match?.hostId || !match?.id) {
+    console.error(`[hostLog] Skipping — missing required field`);
+    return null;
+  }
   const data = db.get();
   const store = getGuildPayoutStore(data, match.guildId);
   const existing = store.events.find(event => event.matchId === match.id);
@@ -471,6 +480,7 @@ module.exports = {
   COORDINATOR_RANKS,
   DEFAULT_EVENT_LOG_CHANNEL_ID,
   DEFAULT_PAYOUT_REPORT_CHANNEL_ID,
+  getEventLogChannelId,
   getGuildPayoutStore,
   getGuildSettings,
   hasPayoutPermission,

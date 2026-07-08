@@ -24,14 +24,6 @@ async function refreshEloLeaderboard(channel, eloData) {
 
 require('dotenv').config();
 require('./keepalive');
-
-process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled promise rejection:', reason);
-});
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
-});
-
 const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
 const db = require('./database');
 const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup');
@@ -179,6 +171,19 @@ client.on('interactionCreate', async interaction => {
       const p = { content: '❌ An error occurred.', flags: 64 };
       if (interaction.replied || interaction.deferred) await interaction.followUp(p).catch(() => {});
       else await interaction.reply(p).catch(() => {});
+    }
+    return;
+  }
+
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === 'tourney_register_modal') {
+      const { handleTourneyRegistration } = require('./commands/tournamentregister');
+      try { await handleTourneyRegistration(interaction); } catch (e) {
+        console.error('Tournament registration modal error:', e);
+        const p = { content: '❌ Registration failed. Please try again.', flags: 64 };
+        if (interaction.replied || interaction.deferred) await interaction.followUp(p).catch(() => {});
+        else await interaction.reply(p).catch(() => {});
+      }
     }
     return;
   }
@@ -747,7 +752,6 @@ client.on('interactionCreate', async interaction => {
         db.set(completeData);
         recordHostedEventFromMatch(client, match).catch(error => console.error('recordHostedEventFromMatch complete error:', error.message));
         let finalReplyPromise = null;
-
         const { EmbedBuilder } = require('discord.js');
         const champEntry = bracketRound.find(m => m.winner === champion);
         const champTag = champEntry
@@ -765,39 +769,42 @@ client.on('interactionCreate', async interaction => {
               .addFields({ name: 'Match ELO Changes', value: eloSummary.slice(0, 1024), inline: false })
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
-            finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
           } catch (e) {
             console.error('Failed to post tournament-complete message to private match channel:', e.message);
           }
           scheduleChannelDelete(client, match.privateChannelId);
         }
 
+        finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
+
         try {
           const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
           const logCh = await client.channels.fetch(logChannelId).catch(() => null);
           if (logCh) {
-            const bracketAttachment = makeBracketAttachment(match);
+            const hostUser = match.hostId ? await client.users.fetch(match.hostId).catch(() => null) : null;
+            const hostDisplay = hostUser ? `${hostUser.username} (<@${match.hostId}>)` : (match.hostId ? `<@${match.hostId}>` : 'Unknown');
+            let bracketAttachment = null;
+            try { bracketAttachment = makeBracketAttachment(match); } catch (imgErr) { console.error('Bracket image failed:', imgErr.message); }
             const logEmbed = new EmbedBuilder()
               .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
               .setColor(0xffd700)
               .setDescription(`Champion: <@${champion}>`)
-              .setImage('attachment://bracket.png')
               .addFields(
-                { name: 'Host', value: match.hostId ? `<@${match.hostId}>` : 'Unknown', inline: true },
+                { name: 'Host', value: hostDisplay, inline: true },
                 { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
               )
               .setTimestamp();
-
+            if (bracketAttachment) logEmbed.setImage('attachment://bracket.png');
             await logCh.send({
               embeds: [logEmbed],
-              files: [bracketAttachment],
+              files: bracketAttachment ? [bracketAttachment] : [],
               allowedMentions: { parse: [] },
             });
           } else {
             console.error(`Match log channel ${logChannelId} could not be fetched for guild ${match.guildId}.`);
           }
         } catch (e) {
-          console.error('Failed to post match result to log channel:', e.message);
+          console.error('Match completion log error:', e.message);
         }
 
         (async () => {
@@ -857,4 +864,45 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-client.login(DISCORD_TOKEN);
+process.on('unhandledRejection', err => {
+  console.error('Unhandled rejection:', err);
+});
+process.on('uncaughtException', err => {
+  console.error('Uncaught exception:', err);
+});
+
+client.on('error', err => console.error('Discord client error:', err.message));
+client.on('warn', msg => console.warn('Discord client warning:', msg));
+client.on('disconnect', () => console.warn('Discord client disconnected'));
+
+const https = require('https');
+https.get('https://discord.com/api/v10/gateway', res => {
+  console.log(`Discord API reachable: HTTP ${res.statusCode}`);
+}).on('error', err => {
+  console.error(`❌ Cannot reach Discord API: ${err.message} — Render may be IP-blocked by Discord.`);
+});
+
+console.log(`Attempting Discord login... (token set: ${!!DISCORD_TOKEN}, length: ${DISCORD_TOKEN.length})`);
+
+async function loginWithBackoff(attempt = 1) {
+  const maxAttempts = 20;
+  const attemptTimeout = 30000;
+  console.log(`[login] Attempt ${attempt}/${maxAttempts}...`);
+  try {
+    await Promise.race([
+      client.login(DISCORD_TOKEN),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('login timed out')), attemptTimeout)),
+    ]);
+  } catch (err) {
+    console.error(`[login] Attempt ${attempt} failed: ${err.message}`);
+    if (attempt >= maxAttempts) {
+      console.error('[login] Max attempts reached. Giving up — check token and network.');
+      return;
+    }
+    const delay = Math.min(300000, 15000 * Math.pow(2, attempt - 1));
+    console.log(`[login] Retrying in ${Math.round(delay / 1000)}s...`);
+    setTimeout(() => loginWithBackoff(attempt + 1), delay);
+  }
+}
+
+loginWithBackoff();

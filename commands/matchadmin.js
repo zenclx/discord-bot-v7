@@ -47,12 +47,16 @@ function buildPanel(match) {
         { name: 'Missing Check-In', value: missing.length ? missing.map(id => `<@${id}>`).join('\n') : 'Everyone checked in.', inline: true },
       );
     }
-    const row = new ActionRowBuilder().addComponents(
+    const switchLabel = match.type === '1v1' ? '🔄 Switch to 2v2' : '🔄 Switch to 1v1';
+    const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`addminute_${match.id}`).setLabel('+1 Minute').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`forcestart_${match.id}`).setLabel('Force Start').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`cancel_queue_${match.id}`).setLabel('Cancel Queue').setStyle(ButtonStyle.Danger),
     );
-    return { embeds: [embed], components: [row] };
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`changetype_${match.id}`).setLabel(switchLabel).setStyle(ButtonStyle.Secondary),
+    );
+    return { embeds: [embed], components: [row1, row2] };
   }
 
   const pending = match.bracket?.[match.currentRound]?.filter(m => !m.winner && !m.bye) || [];

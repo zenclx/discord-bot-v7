@@ -612,6 +612,36 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
+  // ── Change match type (1v1 ↔ 2v2) ──────────────────────────────────────────
+  if (customId.startsWith('changetype_')) {
+    const matchId = customId.replace('changetype_', '');
+    if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ Staff only.', flags: 64 });
+    const data = db.get();
+    const match = data.matches?.[matchId];
+    if (!match || !['queuing', 'checking'].includes(match.status)) {
+      return interaction.reply({ content: '❌ Match is not in queuing or check-in phase.', flags: 64 });
+    }
+    const newType = match.type === '1v1' ? '2v2' : '1v1';
+    match.type = newType;
+    data.matches[matchId] = match;
+    db.set(data);
+    if (match.channelId) {
+      try {
+        const ch = await client.channels.fetch(match.channelId);
+        const msgId = match.status === 'checking' ? (match.checkInMessageId || match.messageId) : match.messageId;
+        if (msgId) {
+          const msg = await ch.messages.fetch(msgId);
+          if (match.status === 'checking') {
+            await msg.edit({ embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) });
+          } else {
+            await msg.edit({ embeds: [buildQueueEmbed(match)], components: makeQueueRows(matchId) });
+          }
+        }
+      } catch {}
+    }
+    return interaction.reply({ content: `✅ Match type changed to **${newType.toUpperCase()}**.`, flags: 64 });
+  }
+
   // ── Winner selection ──────────────────────────────────────────────────────
   // Format: win|matchId|round|matchIndex|winnerId  (pipe-separated, no ambiguity)
   if (customId.startsWith('resend_bracket_')) {

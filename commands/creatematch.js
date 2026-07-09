@@ -444,13 +444,45 @@ async function logMatchResult(client, match, winnerId, loserIds) {
 }
 
 // ── Bracket post/update ───────────────────────────────────────────────────────
-async function postOrUpdateBracket(client, match) {
+async function postOrUpdateBracket(client, match, { pingRound = false } = {}) {
   if (!match.privateChannelId) return;
   try {
     const ch = await client.channels.fetch(match.privateChannelId);
     const attachment = makeBracketAttachment(match);
     const embed = buildBracketTextEmbed(match, match.currentRound);
     const components = buildBracketComponents(match, match.currentRound);
+
+    // When starting a new round, post a fresh message that pings active players
+    if (pingRound) {
+      const currentRound = match.bracket?.[match.currentRound] || [];
+      const playerIds = new Set();
+      for (const m of currentRound) {
+        if (m.bye || m.winner) continue;
+        if (match.type === '2v2') {
+          (m.teamA || []).forEach(id => id && playerIds.add(id));
+          (m.teamB || []).forEach(id => id && playerIds.add(id));
+        } else {
+          if (m.p1) playerIds.add(m.p1);
+          if (m.p2) playerIds.add(m.p2);
+        }
+      }
+      const roundLabel = `Round ${match.currentRound + 1}`;
+      const pingContent = playerIds.size
+        ? `${[...playerIds].map(id => `<@${id}>`).join(' ')} — **${roundLabel}** is live!`
+        : `**${roundLabel}** is live!`;
+      const msg = await ch.send({
+        content: pingContent,
+        embeds: [embed],
+        files: [attachment],
+        components,
+        allowedMentions: { parse: ['users'] },
+      });
+      match.bracketMessageId = msg.id;
+      const data = db.get();
+      data.matches[match.id] = match;
+      db.set(data);
+      return;
+    }
 
     if (match.bracketMessageId) {
       try {
@@ -954,7 +986,7 @@ async function startVotesFromSeedPreview(client, matchId) {
   const freshData = db.get();
   const freshMatch = freshData.matches[matchId];
   if (!freshMatch?.bracket?.length) return false;
-  await postOrUpdateBracket(client, freshMatch);
+  await postOrUpdateBracket(client, freshMatch, { pingRound: true });
 
   if (alreadyConfirmed) return true;
 

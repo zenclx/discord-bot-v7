@@ -928,7 +928,7 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      await postOrUpdateBracket(client, match);
+      await postOrUpdateBracket(client, match, { pingRound: true });
       return interaction.editReply({ content: `Round ${round + 1} complete - Round ${round + 2} is now live!` });
     }
 

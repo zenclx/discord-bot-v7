@@ -22,9 +22,10 @@ function findCurrentQueue(data, interaction, requestedMatchId) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('addteam')
-    .setDescription('Add a pre-formed 2v2 team to the current match queue')
+    .setDescription('Add a pre-formed team to the current match queue')
     .addUserOption(o => o.setName('player1').setDescription('First teammate').setRequired(true))
     .addUserOption(o => o.setName('player2').setDescription('Second teammate').setRequired(true))
+    .addUserOption(o => o.setName('player3').setDescription('Third teammate (3v3 only)').setRequired(false))
     .addStringOption(o => o.setName('matchid').setDescription('Optional match ID if multiple queues are open').setRequired(false)),
 
   async execute(interaction) {
@@ -34,9 +35,11 @@ module.exports = {
 
     const player1 = interaction.options.getUser('player1');
     const player2 = interaction.options.getUser('player2');
+    const player3 = interaction.options.getUser('player3') || null;
 
-    if (player1.id === player2.id) {
-      return interaction.reply({ content: 'Both players must be different users.', flags: 64 });
+    const playerIds = [player1.id, player2.id, ...(player3 ? [player3.id] : [])];
+    if (new Set(playerIds).size !== playerIds.length) {
+      return interaction.reply({ content: 'All players must be different users.', flags: 64 });
     }
 
     const requestedMatchId = interaction.options.getString('matchid');
@@ -48,16 +51,21 @@ module.exports = {
       return interaction.reply({ content: 'No open queue found in this channel.', flags: 64 });
     }
 
-    if (match.type !== '2v2') {
-      return interaction.reply({ content: `This match is **${match.type.toUpperCase()}**. \`/addteam\` is only for 2v2 matches.`, flags: 64 });
+    if (!['2v2', '3v3'].includes(match.type)) {
+      return interaction.reply({ content: `This match is **${match.type.toUpperCase()}**. \`/addteam\` is only for 2v2 or 3v3 matches.`, flags: 64 });
+    }
+
+    if (match.type === '3v3' && !player3) {
+      return interaction.reply({ content: '3v3 matches require a third player. Use `/addteam player1 player2 player3`.', flags: 64 });
     }
 
     if (!['queuing', 'checking'].includes(match.status)) {
       return interaction.reply({ content: 'That match is not in queue or check-in phase.', flags: 64 });
     }
 
+    const players = player3 ? [player1, player2, player3] : [player1, player2];
     const added = [];
-    for (const player of [player1, player2]) {
+    for (const player of players) {
       if (!match.queue.includes(player.id)) {
         match.queue.push(player.id);
         added.push(player.id);
@@ -70,27 +78,28 @@ module.exports = {
 
     if (!match.preformedTeams) match.preformedTeams = [];
 
-    // Remove either player from any existing pre-formed pair before adding the new one
+    // Remove any player from existing pre-formed teams before adding the new one
     match.preformedTeams = match.preformedTeams.filter(
-      pair => !pair.includes(player1.id) && !pair.includes(player2.id)
+      pair => !pair.some(id => playerIds.includes(id))
     );
-    match.preformedTeams.push([player1.id, player2.id]);
+    match.preformedTeams.push(playerIds);
 
     data.matches[match.id] = match;
     db.set(data);
     await saveToDiscord(interaction.client);
 
+    const teamDisplay = players.map(p => `<@${p.id}>`).join(' & ');
     await sendStaffAuditLog(interaction.client, interaction.guildId, 'Pre-Formed Team Added', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
-      { name: 'Team', value: `<@${player1.id}> & <@${player2.id}>`, inline: true },
-      { name: 'Newly Added', value: added.length ? added.map(id => `<@${id}>`).join(' & ') : 'Both already in queue', inline: true },
+      { name: 'Team', value: teamDisplay, inline: true },
+      { name: 'Newly Added', value: added.length ? added.map(id => `<@${id}>`).join(' & ') : 'All already in queue', inline: true },
     ], interaction.user.id);
 
     try {
       const { buildCheckInEmbed, makeCheckInRows } = require('./creatematch');
       if (match.status === 'checking') {
         const channel = await interaction.client.channels.fetch(match.privateChannelId || match.channelId);
-        for (const player of [player1, player2]) {
+        for (const player of players) {
           await channel.permissionOverwrites.edit(player.id, {
             ViewChannel: true,
             SendMessages: true,
@@ -112,7 +121,7 @@ module.exports = {
     const totalPlayers = match.queue.length;
     const addedNote = added.length ? ` (added ${added.map(id => `<@${id}>`).join(' & ')} to queue)` : '';
     return interaction.reply({
-      content: `Pre-formed team set: <@${player1.id}> & <@${player2.id}>${addedNote}.\nMatch #${match.matchNum ?? '?'} — ${totalPlayers}/${getMinPlayers(match)} players, ${totalTeams} pre-formed team${totalTeams !== 1 ? 's' : ''}.`,
+      content: `Pre-formed team set: ${teamDisplay}${addedNote}.\nMatch #${match.matchNum ?? '?'} — ${totalPlayers}/${getMinPlayers(match)} players, ${totalTeams} pre-formed team${totalTeams !== 1 ? 's' : ''}.`,
       flags: 64,
     });
   },

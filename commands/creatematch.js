@@ -24,8 +24,9 @@ const DEFAULT_LOG_CHANNEL_ID = '1384695119243907132';
 const MATCH_PING_ROLE_ID = process.env.VERIFIED_COMPETITOR_ROLE_ID || process.env.MATCH_PING_ROLE_ID || '1333145733955850348';
 
 function getMinPlayers(match) {
-  if (match.testMatch) return match.type === '1v1' ? 2 : 4;
-  return match.type === '1v1' ? 4 : 6;
+  if (match.type === '1v1') return match.testMatch ? 2 : 4;
+  if (match.type === '3v3') return match.testMatch ? 6 : 9;
+  return match.testMatch ? 4 : 6; // 2v2
 }
 
 // ── Permission ────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ function buildQueueCancelledEmbed(match, reason = 'The host cancelled this queue
 
 // ── Queue embed ───────────────────────────────────────────────────────────────
 function buildQueueEmbed(match) {
-  const typeLabel = match.type === '1v1' ? '1v1' : '2v2';
+  const typeLabel = match.type || '1v1';
   const minPlayers = getMinPlayers(match);
   const timeLeft = Math.max(0, Math.round((match.endsAt - Date.now()) / 1000));
   const mins = Math.floor(timeLeft / 60);
@@ -115,7 +116,7 @@ function buildBracketTextEmbed(match, round) {
     const label = match.bo3Mode === 'all' ? 'Best of 3 (All)' : 'Finals Bo3';
     embed.addFields({ name: '🎮 Format', value: label, inline: true });
   }
-  if (match.type === '2v2' && match.teams) {
+  if (['2v2', '3v3'].includes(match.type) && match.teams) {
     const teamLines = match.teams.map((t, i) =>
       `**Team ${String.fromCharCode(65 + i)}:** ${t.map(id => `<@${id}>`).join(' & ')}`
     );
@@ -256,6 +257,19 @@ function pairIntoTeams(players, eloData, randomize = false) {
   return teams;
 }
 
+function pairIntoTrios(players, eloData, randomize = false) {
+  const seeded = randomize ? shuffleItems(players) : getSeededPlayers(players, eloData);
+  const teamCount = Math.floor(seeded.length / 3);
+  const teams = Array.from({ length: teamCount }, () => []);
+  for (let i = 0; i < teamCount * 3; i++) {
+    const round = Math.floor(i / teamCount);
+    const pos = i % teamCount;
+    const teamIdx = round % 2 === 0 ? pos : teamCount - 1 - pos;
+    teams[teamIdx].push(seeded[i]);
+  }
+  return teams.filter(t => t.length === 3);
+}
+
 function getTeamElo(team, eloData) {
   if (!team?.length) return 0;
   return team.reduce((total, id) => total + (getPlayerElo(eloData, id).elo || 0), 0) / team.length;
@@ -283,11 +297,13 @@ function generateTeamBracket(teams, eloData, randomize = false) {
 }
 
 function generateMatchBracket(match, eloData, randomize = false) {
-  if (match.type === '2v2' && !match.testMatch) {
+  if (['2v2', '3v3'].includes(match.type) && !match.testMatch) {
     const preformed = match.preformedTeams || [];
     const preformedSet = new Set(preformed.flat());
     const remaining = (match.queue || []).filter(id => !preformedSet.has(id));
-    const extra = match.draftedTeams || pairIntoTeams(remaining, eloData, randomize);
+    const extra = match.type === '3v3'
+      ? pairIntoTrios(remaining, eloData, randomize)
+      : (match.draftedTeams || pairIntoTeams(remaining, eloData, randomize));
     const allTeams = [...preformed, ...extra];
     const { bracket, seededTeams } = generateTeamBracket(allTeams, eloData, randomize);
     match.teams = seededTeams; // keep in seeded order so Team A/B/C labels match the bracket
@@ -299,31 +315,35 @@ function generateMatchBracket(match, eloData, randomize = false) {
 }
 
 function buildNextRound(currentRound) {
-  const byeWinners = currentRound.filter(m => m.bye && m.byePlayer).map(m => ({ id: m.winner, tag: m.p1Tag }));
-  const normalWinners = currentRound.filter(m => !m.bye).map(m => ({
+  // Build a map of winner → team info for team-based matches (2v2/3v3)
+  const teamInfo = new Map();
+  for (const m of currentRound) {
+    if (m.teamA) teamInfo.set(m.p1, { team: m.teamA, label: m.teamLabel1 });
+    if (m.teamB) teamInfo.set(m.p2, { team: m.teamB, label: m.teamLabel2 });
+  }
+
+  // Collect winners in bracket order (byes already have winner set, so they keep their slot)
+  const winners = currentRound.map(m => ({
     id: m.winner,
     tag: m.winner === m.p1 ? m.p1Tag : m.p2Tag,
+    info: teamInfo.get(m.winner),
   }));
 
   const nextRound = [];
-  const pool = [...normalWinners];
-
-  for (const bye of byeWinners) {
-    if (pool.length > 0) {
-      const opp = pool.shift();
-      nextRound.push({ p1: bye.id, p2: opp.id, winner: null, p1Tag: bye.tag, p2Tag: opp.tag, bye: false });
-    } else {
-      nextRound.push({ p1: bye.id, p2: null, winner: bye.id, bye: true, byePlayer: true, p1Tag: bye.tag });
-    }
+  for (let i = 0; i + 1 < winners.length; i += 2) {
+    const w1 = winners[i];
+    const w2 = winners[i + 1];
+    const bm = { p1: w1.id, p2: w2.id, winner: null, p1Tag: w1.tag, p2Tag: w2.tag, bye: false };
+    if (w1.info) { bm.teamA = w1.info.team; bm.teamLabel1 = w1.info.label; }
+    if (w2.info) { bm.teamB = w2.info.team; bm.teamLabel2 = w2.info.label; }
+    nextRound.push(bm);
   }
 
-  for (let i = 0; i + 1 < pool.length; i += 2) {
-    nextRound.push({ p1: pool[i].id, p2: pool[i + 1].id, winner: null, p1Tag: pool[i].tag, p2Tag: pool[i + 1].tag, bye: false });
-  }
-
-  if (pool.length % 2 !== 0) {
-    const leftover = pool[pool.length - 1];
-    nextRound.push({ p1: leftover.id, p2: null, winner: leftover.id, bye: true, byePlayer: true, p1Tag: leftover.tag });
+  if (winners.length % 2 !== 0) {
+    const last = winners[winners.length - 1];
+    const bm = { p1: last.id, p2: null, winner: last.id, bye: true, byePlayer: true, p1Tag: last.tag };
+    if (last.info) { bm.teamA = last.info.team; bm.teamLabel1 = last.info.label; }
+    nextRound.push(bm);
   }
 
   return nextRound;
@@ -400,7 +420,7 @@ async function createMatchChannel(client, match) {
   } catch (e) { console.error('createMatchChannel error:', e.message); return null; }
 }
 
-async function scheduleChannelDelete(client, channelId, vcChannelId = null) {
+async function scheduleChannelDelete(client, channelId, vcChannelId = null, announceChannelId = null) {
   setTimeout(async () => {
     try { await (await client.channels.fetch(channelId)).send('⚠️ **This channel will be deleted in 10 seconds.**'); } catch {}
   }, 50000);
@@ -409,7 +429,51 @@ async function scheduleChannelDelete(client, channelId, vcChannelId = null) {
     if (vcChannelId) {
       try { await (await client.channels.fetch(vcChannelId)).delete('Match complete'); } catch {}
     }
+    if (announceChannelId) {
+      try { await (await client.channels.fetch(announceChannelId)).delete('Match complete'); } catch {}
+    }
   }, 60000);
+}
+
+async function createAnnouncementsChannel(client, match) {
+  try {
+    const guild = await client.guilds.fetch(match.guildId);
+    const data = db.get();
+    const configuredManagerRoles = data.settings?.[match.guildId]?.matchManagerRoles || [];
+    const managerRoles = [...new Set([...MATCH_MANAGER_ROLES, ...configuredManagerRoles])];
+    const overwrites = [
+      { id: guild.roles.everyone, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
+      {
+        id: client.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.EmbedLinks,
+          PermissionFlagsBits.ManageChannels,
+          PermissionFlagsBits.ManageMessages,
+        ],
+      },
+      ...managerRoles.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
+    ];
+    return await guild.channels.create({
+      name: `match-${match.matchNum ?? 0}-results`,
+      type: ChannelType.GuildText,
+      parent: MATCH_CATEGORY_ID,
+      permissionOverwrites: overwrites,
+      topic: `Match announcements | ${match.type.toUpperCase()} | ID: ${match.id}`,
+    });
+  } catch (e) { console.error('createAnnouncementsChannel error:', e.message); return null; }
+}
+
+async function sendMatchAnnouncement(client, match, payload) {
+  const channelId = match.announcementsChannelId || match.privateChannelId;
+  if (!channelId) return null;
+  try {
+    const ch = await client.channels.fetch(channelId);
+    return await ch.send(payload);
+  } catch (e) { console.error('sendMatchAnnouncement error:', e.message); return null; }
 }
 
 async function createMatchVoiceChannel(client, match) {
@@ -484,7 +548,7 @@ async function scheduleScreenshareCheck(client, matchId, vcChannelId) {
 
       for (const bm of currentRound) {
         if (bm.winner || bm.bye) continue;
-        if (match.type === '2v2') {
+        if (['2v2', '3v3'].includes(match.type)) {
           const teamAMissing = (bm.teamA || []).some(id => missingVc.includes(id));
           const teamBMissing = (bm.teamB || []).some(id => missingVc.includes(id));
           if (teamAMissing && !teamBMissing) {
@@ -553,7 +617,7 @@ async function scheduleScreenshareCheck(client, matchId, vcChannelId) {
                 : `<@${champion}>`;
               await ch.send(`🏆 **Tournament Complete via VC DQ!**\nChampion: ${champDisplay}`);
             } catch {}
-            scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
+            scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null, match.announcementsChannelId || null);
           }
         } else {
           const nextRound = buildNextRound(currentRound);
@@ -615,9 +679,15 @@ async function logMatchResult(client, match, winnerId, loserIds) {
 
 // ── Bracket post/update ───────────────────────────────────────────────────────
 async function postOrUpdateBracket(client, match) {
-  if (!match.privateChannelId) return;
+  const channelId = match.announcementsChannelId || match.privateChannelId;
+  if (!channelId) return;
   try {
-    const ch = await client.channels.fetch(match.privateChannelId);
+    // Always read fresh bracketMessageId from DB to reduce duplicate-post race conditions
+    const freshData = db.get();
+    const freshMatch = freshData.matches?.[match.id];
+    if (freshMatch?.bracketMessageId) match.bracketMessageId = freshMatch.bracketMessageId;
+
+    const ch = await client.channels.fetch(channelId);
     const attachment = makeBracketAttachment(match);
     const embed = buildBracketTextEmbed(match, match.currentRound);
     const components = buildBracketComponents(match, match.currentRound);
@@ -632,9 +702,12 @@ async function postOrUpdateBracket(client, match) {
     const msg = await ch.send({ embeds: [embed], files: [attachment], components });
     match.bracketMessageId = msg.id;
     msg.pin().catch(() => {});
-    const data = db.get();
-    data.matches[match.id] = match;
-    db.set(data);
+    // Save immediately to prevent concurrent calls from creating duplicate messages
+    const saveData = db.get();
+    if (saveData.matches?.[match.id]) {
+      saveData.matches[match.id].bracketMessageId = msg.id;
+      db.set(saveData);
+    }
   } catch (e) { console.error('postOrUpdateBracket error:', e.message); }
 }
 
@@ -1031,11 +1104,13 @@ async function startCheckIn(client, matchId) {
     await saveToDiscord(client);
     return;
   }
+  const announceChannel = await createAnnouncementsChannel(client, match);
 
   match.status = 'checking';
   match.checkIns = {};
   match.checkInEndsAt = Date.now() + CHECKIN_DURATION_MS;
   match.privateChannelId = privateChannel.id;
+  if (announceChannel) match.announcementsChannelId = announceChannel.id;
 
   try {
     const ch = await client.channels.fetch(match.channelId);
@@ -1230,7 +1305,7 @@ async function startBracket(client, matchId) {
       clearInterval(t.checkinInterval);
       timers.delete(matchId);
     }
-    if (match.privateChannelId) scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
+    if (match.privateChannelId) scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null, match.announcementsChannelId || null);
     delete data.matches[matchId];
     db.set(data);
     await saveToDiscord(client);
@@ -1314,6 +1389,21 @@ async function startBracket(client, matchId) {
         }
       }
     }
+  } else if (match.type === '3v3' && !match.testMatch) {
+    // 3v3: always ELO-balanced random teams — no pick-teammate vote
+    // Remove excess players until queue is divisible by 3
+    const excess = match.queue.length % 3;
+    if (excess !== 0) {
+      const pool = shuffleItems([...match.queue]);
+      for (let i = 0; i < excess; i++) {
+        const sittingOut = pool.pop();
+        match.queue = match.queue.filter(id => id !== sittingOut);
+        try {
+          const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
+          if (ch) await ch.send(`⚠️ <@${sittingOut}> was randomly selected to sit out (player count not divisible by 3) and will not play in this match.`).catch(() => {});
+        } catch {}
+      }
+    }
   }
 
   generateMatchBracket(match, eloData);
@@ -1337,6 +1427,10 @@ async function startBracket(client, matchId) {
   if (!privateChannel) return;
 
   match.privateChannelId = privateChannel.id;
+  if (!match.announcementsChannelId) {
+    const announceChannel = await createAnnouncementsChannel(client, match);
+    if (announceChannel) match.announcementsChannelId = announceChannel.id;
+  }
   data.matches[matchId] = match;
   db.set(data);
   saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket channel failed:', error.message));
@@ -1399,7 +1493,7 @@ module.exports = {
     .setName('creatematch')
     .setDescription('Create a match queue')
     .addStringOption(o => o.setName('type').setDescription('Match type').setRequired(true)
-      .addChoices({ name: '1v1', value: '1v1' }, { name: '2v2', value: '2v2' }))
+      .addChoices({ name: '1v1', value: '1v1' }, { name: '2v2', value: '2v2' }, { name: '3v3', value: '3v3' }))
     .addStringOption(o => o.setName('prize').setDescription('Prize for the winner').setRequired(false))
     .addBooleanOption(o => o.setName('test_match').setDescription('Lower the player minimum so staff can test brackets').setRequired(false)),
 
@@ -1496,7 +1590,7 @@ module.exports = {
   startVotesFromSeedPreview, reshuffleSeedPreview,
   postTeamFormatVote, postTeamDraft,
   createMatchVoiceChannel, scheduleScreenshareCheck, SCREENSHARE_ROLE_ID, SCREENSHARE_DQ_MINUTES,
-  postSeedPreview,
+  postSeedPreview, sendMatchAnnouncement, pairIntoTrios, createAnnouncementsChannel,
 };
 
 

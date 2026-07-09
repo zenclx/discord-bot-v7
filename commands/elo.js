@@ -116,34 +116,47 @@ async function syncRoles(guild, userId, newTier) {
   }
 }
 
-async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFinal) {
+async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFinal, winnerTeam = null, loserTeam = null) {
   try {
     const data = db.get();
     const eloData = getEloData(data);
+
+    // Use captain ELOs for delta calculation
     const winner = getPlayerElo(eloData, winnerId);
     const loser = loserId ? getPlayerElo(eloData, loserId) : null;
     const delta = calculateMatchEloDelta(winner, loser, roundIndex, isFinal);
     const gainAmount = delta.gain;
 
-    const winResult = applyEloChange(eloData, winnerId, gainAmount);
-    winner.wins = (winner.wins || 0) + 1;
-    winner.seasonElo = Math.max(0, (winner.seasonElo || 0) + gainAmount);
-    winner.seasonWins = (winner.seasonWins || 0) + 1;
-    winner.matchHistory = [
-      { matchId: match.id, matchNum: match.matchNum ?? null, type: 'win', delta: gainAmount, elo: winResult.newElo, round: roundIndex, opponent: loserId || null, streakBounty: delta.streakBounty, ts: Date.now() },
-      ...(winner.matchHistory || []),
-    ].slice(0, 50);
+    // All players who receive ELO changes (team support)
+    const allWinners = winnerTeam?.length ? [...new Set([winnerId, ...winnerTeam])] : [winnerId];
+    const allLosers = loserTeam?.length ? [...new Set([...(loserId ? [loserId] : []), ...loserTeam])] : (loserId ? [loserId] : []);
+
+    let winResult = null;
+    for (const wId of allWinners) {
+      const wPlayer = getPlayerElo(eloData, wId);
+      const result = applyEloChange(eloData, wId, gainAmount);
+      wPlayer.wins = (wPlayer.wins || 0) + 1;
+      wPlayer.seasonElo = Math.max(0, (wPlayer.seasonElo || 0) + gainAmount);
+      wPlayer.seasonWins = (wPlayer.seasonWins || 0) + 1;
+      wPlayer.matchHistory = [
+        { matchId: match.id, matchNum: match.matchNum ?? null, type: 'win', delta: gainAmount, elo: result.newElo, round: roundIndex, opponent: loserId || null, streakBounty: wId === winnerId ? delta.streakBounty : 0, ts: Date.now() },
+        ...(wPlayer.matchHistory || []),
+      ].slice(0, 50);
+      if (wId === winnerId) winResult = result;
+    }
 
     let lossResult = null;
-    if (loserId) {
-      lossResult = applyEloChange(eloData, loserId, -delta.loss);
-      loser.losses = (loser.losses || 0) + 1;
-      loser.seasonElo = Math.max(0, (loser.seasonElo || 0) - delta.loss);
-      loser.seasonLosses = (loser.seasonLosses || 0) + 1;
-      loser.matchHistory = [
-        { matchId: match.id, matchNum: match.matchNum ?? null, type: 'loss', delta: -delta.loss, elo: lossResult.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
-        ...(loser.matchHistory || []),
+    for (const lId of allLosers) {
+      const lPlayer = getPlayerElo(eloData, lId);
+      const result = applyEloChange(eloData, lId, -delta.loss);
+      lPlayer.losses = (lPlayer.losses || 0) + 1;
+      lPlayer.seasonElo = Math.max(0, (lPlayer.seasonElo || 0) - delta.loss);
+      lPlayer.seasonLosses = (lPlayer.seasonLosses || 0) + 1;
+      lPlayer.matchHistory = [
+        { matchId: match.id, matchNum: match.matchNum ?? null, type: 'loss', delta: -delta.loss, elo: result.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
+        ...(lPlayer.matchHistory || []),
       ].slice(0, 50);
+      if (lId === loserId) lossResult = result;
     }
 
     if (!match.eloEvents) match.eloEvents = [];
@@ -160,8 +173,13 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
       await updateEloLeaderboard(client, match.guildId);
       try {
         const guild = await client.guilds.fetch(match.guildId);
-        await syncRoles(guild, winnerId, getTierForElo(winResult.newElo));
-        if (loserId && lossResult) await syncRoles(guild, loserId, getTierForElo(lossResult.newElo));
+        const freshEloData = getEloData(db.get());
+        for (const wId of allWinners) {
+          await syncRoles(guild, wId, getTierForElo(getPlayerElo(freshEloData, wId).elo || 0));
+        }
+        for (const lId of allLosers) {
+          await syncRoles(guild, lId, getTierForElo(getPlayerElo(freshEloData, lId).elo || 0));
+        }
       } catch {}
     })().catch(error => console.error('applyMatchElo background update failed:', error.message));
 

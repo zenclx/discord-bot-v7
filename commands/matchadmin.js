@@ -47,7 +47,7 @@ function buildPanel(match) {
         { name: 'Missing Check-In', value: missing.length ? missing.map(id => `<@${id}>`).join('\n') : 'Everyone checked in.', inline: true },
       );
     }
-    const switchLabel = match.type === '1v1' ? '🔄 Switch to 2v2' : '🔄 Switch to 1v1';
+    const switchLabel = match.type === '1v1' ? '🔄 Switch to 2v2' : match.type === '2v2' ? '🔄 Switch to 3v3' : '🔄 Switch to 1v1';
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`addminute_${match.id}`).setLabel('+1 Minute').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`forcestart_${match.id}`).setLabel('Force Start').setStyle(ButtonStyle.Primary),

@@ -475,10 +475,32 @@ client.on('interactionCreate', async interaction => {
       console.warn(`Join queue rejected for ${matchId}: ${match ? `status=${match.status}` : 'match missing'}`);
       return interaction.reply({ content: 'Queue is closed.', flags: 64 });
     }
+    // Block players with the restricted role
+    if (interaction.member?.roles?.cache?.has('1388010357586661417')) {
+      return interaction.reply({ content: '❌ You are not eligible to join match queues.', flags: 64 });
+    }
     if (match.queue.includes(interaction.user.id)) return interaction.reply({ content: '⚠️ You are already in the queue!', flags: 64 });
     match.queue.push(interaction.user.id);
     data.matches[matchId] = match;
     db.set(data);
+
+    // Suggest switching to 2v2 when a 1v1 queue reaches 8+ players
+    if (match.type === '1v1' && match.queue.length >= 8) {
+      try {
+        const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+        const ch = await client.channels.fetch(match.channelId);
+        const suggEmbed = new EmbedBuilder()
+          .setTitle('📣 Queue Update — 8 Players Joined!')
+          .setColor(0xf59e0b)
+          .setDescription(`This **1v1** queue now has **${match.queue.length} players**.\n\nWould you like to switch to **2v2** mode? Use the admin panel or the button below.`)
+          .setTimestamp();
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`changetype_${matchId}`).setLabel('🔄 Switch to 2v2').setStyle(ButtonStyle.Primary),
+        );
+        await ch.send({ content: `<@${match.hostId}>`, embeds: [suggEmbed], components: [row], allowedMentions: { users: [match.hostId] } });
+      } catch {}
+    }
+
     return interaction.update({ embeds: [buildQueueEmbed(match)], components: makeQueueRows(matchId) });
   }
 
@@ -630,7 +652,7 @@ client.on('interactionCreate', async interaction => {
     if (!match || !['queuing', 'checking'].includes(match.status)) {
       return interaction.reply({ content: '❌ Match is not in queuing or check-in phase.', flags: 64 });
     }
-    const newType = match.type === '1v1' ? '2v2' : '1v1';
+    const newType = match.type === '1v1' ? '2v2' : match.type === '2v2' ? '3v3' : '1v1';
     match.type = newType;
     data.matches[matchId] = match;
     db.set(data);
@@ -685,7 +707,7 @@ client.on('interactionCreate', async interaction => {
     if (match.privateChannelId) {
       const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
       if (ch) await ch.send('Match cancelled by staff.').catch(() => {});
-      scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
+      scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null, match.announcementsChannelId || null);
     }
     return interaction.reply({ content: 'Match cancelled.', flags: 64 });
   }
@@ -811,15 +833,20 @@ client.on('interactionCreate', async interaction => {
 
     // Achievement earning disabled — data preserved for future re-enable
 
-    if (match.privateChannelId) {
+    const winTeam = ['2v2', '3v3'].includes(match.type)
+      ? (winnerId === bracketMatch.p1 ? bracketMatch.teamA : bracketMatch.teamB) || null
+      : null;
+    const loseTeam = ['2v2', '3v3'].includes(match.type)
+      ? (loserId === bracketMatch.p1 ? bracketMatch.teamA : bracketMatch.teamB) || null
+      : null;
+    const winDisplay = winTeam?.length
+      ? winTeam.map(id => `<@${id}>`).join(' & ')
+      : `<@${winnerId}>`;
+
+    const announceChannelId = match.announcementsChannelId || match.privateChannelId;
+    if (announceChannelId) {
       try {
-        const ch = await client.channels.fetch(match.privateChannelId);
-        const winTeam = match.type === '2v2'
-          ? (winnerId === bracketMatch.p1 ? bracketMatch.teamA : bracketMatch.teamB)
-          : null;
-        const winDisplay = winTeam?.length
-          ? winTeam.map(id => `<@${id}>`).join(' & ')
-          : `<@${winnerId}>`;
+        const ch = await client.channels.fetch(announceChannelId);
         await ch.send(`Winner recorded: ${winDisplay} won Round ${round + 1}, Match ${matchIndex + 1}.`);
       } catch {}
     }
@@ -830,9 +857,9 @@ client.on('interactionCreate', async interaction => {
 
     data.matches[matchId] = match;
     db.set(data);
-    const eloResult = await applyMatchElo(client, match, winnerId, loserId || null, round, isTournamentFinal);
-    if (eloResult?.streakBounty > 0 && match.privateChannelId) {
-      const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
+    const eloResult = await applyMatchElo(client, match, winnerId, loserId || null, round, isTournamentFinal, winTeam, loseTeam);
+    if (eloResult?.streakBounty > 0 && announceChannelId) {
+      const ch = await client.channels.fetch(announceChannelId).catch(() => null);
       if (ch) await ch.send(`<@${winnerId}> earned a **+${eloResult.streakBounty} ELO streak bounty** for ending <@${loserId}>'s streak.`);
     }
 
@@ -852,7 +879,7 @@ client.on('interactionCreate', async interaction => {
         const champTag = champEntry
           ? (champEntry.winner === champEntry.p2 ? champEntry.p2Tag : champEntry.p1Tag) || ''
           : '';
-        const champTeam = match.type === '2v2' && champEntry
+        const champTeam = ['2v2', '3v3'].includes(match.type) && champEntry
           ? (champion === champEntry.p1 ? champEntry.teamA : champEntry.teamB) || null
           : null;
         const champDisplay = champTeam?.length
@@ -861,9 +888,10 @@ client.on('interactionCreate', async interaction => {
         const eloData = getEloData(db.get());
         const eloSummary = buildMatchEloSummary(match, eloData);
 
-        if (match.privateChannelId) {
+        const finalAnnounceChannelId = match.announcementsChannelId || match.privateChannelId;
+        if (finalAnnounceChannelId) {
           try {
-            const ch = await client.channels.fetch(match.privateChannelId);
+            const ch = await client.channels.fetch(finalAnnounceChannelId);
             const finalEmbed = new EmbedBuilder()
               .setTitle('🏆 Tournament Complete!').setColor(0xffd700)
               .setDescription(`👑 **Champion: ${champDisplay}**${champTag ? ` (${champTag})` : ''}\n\nGG to all players!${match.prize ? `\n\n🎁 **Prize:** ${match.prize}` : ''}`)
@@ -871,7 +899,9 @@ client.on('interactionCreate', async interaction => {
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
           } catch {}
-          scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
+        }
+        if (match.privateChannelId) {
+          scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null, match.announcementsChannelId || null);
         }
 
         finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: ${champDisplay}` }).catch(() => null);

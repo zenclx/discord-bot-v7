@@ -10,7 +10,7 @@ function findActiveMatch(data, interaction, requestedMatchId) {
     .filter(m =>
       m.guildId === interaction.guildId
       && ['seeding', 'bracket'].includes(m.status)
-      && m.type === '2v2'
+      && ['2v2', '3v3'].includes(m.type)
     )
     .sort((a, b) => (b.checkInEndsAt || b.endsAt || 0) - (a.checkInEndsAt || a.endsAt || 0));
   return matches.find(m =>
@@ -21,7 +21,7 @@ function findActiveMatch(data, interaction, requestedMatchId) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('swapplayers')
-    .setDescription('Swap two players between teams in a 2v2 match')
+    .setDescription('Swap two players between teams in a 2v2 or 3v3 match')
     .addUserOption(o => o.setName('player1').setDescription('First player to swap').setRequired(true))
     .addUserOption(o => o.setName('player2').setDescription('Second player to swap').setRequired(true))
     .addStringOption(o => o.setName('matchid').setDescription('Optional match ID if multiple matches are active').setRequired(false)),

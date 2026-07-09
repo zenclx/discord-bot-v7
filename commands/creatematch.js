@@ -1230,6 +1230,7 @@ async function startBracket(client, matchId) {
       clearInterval(t.checkinInterval);
       timers.delete(matchId);
     }
+    if (match.privateChannelId) scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
     delete data.matches[matchId];
     db.set(data);
     await saveToDiscord(client);

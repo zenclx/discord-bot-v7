@@ -554,6 +554,11 @@ client.on('interactionCreate', async interaction => {
       clearInterval(t.checkinInterval);
       timers.delete(matchId);
     }
+    if (match.privateChannelId) {
+      const pCh = await client.channels.fetch(match.privateChannelId).catch(() => null);
+      if (pCh) await pCh.send('Queue cancelled by the host.').catch(() => {});
+      scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
+    }
     delete data.matches[matchId];
     db.set(data);
     await saveToDiscord(client);
@@ -674,6 +679,7 @@ client.on('interactionCreate', async interaction => {
     if (match.privateChannelId) {
       const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
       if (ch) await ch.send('Match cancelled by staff.').catch(() => {});
+      scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
     }
     return interaction.reply({ content: 'Match cancelled.', flags: 64 });
   }

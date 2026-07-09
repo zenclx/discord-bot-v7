@@ -26,7 +26,7 @@ require('dotenv').config();
 require('./keepalive');
 const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
 const db = require('./database');
-const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup');
+const { restoreFromDiscord, scheduleDiscordBackup, saveToDiscord } = require('./discordBackup');
 const { buildScoreboardEmbed } = require('./utils');
 const { loadCommands } = require('./commands/registry');
 const { sendStaffAuditLog } = require('./auditLog');

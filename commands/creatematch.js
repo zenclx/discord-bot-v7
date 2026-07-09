@@ -282,7 +282,7 @@ function generateTeamBracket(teams, eloData, randomize = false) {
 
 function generateMatchBracket(match, eloData, randomize = false) {
   if (match.type === '2v2' && !match.testMatch) {
-    match.teams = pairIntoTeams(match.queue, eloData, randomize);
+    match.teams = match.draftedTeams || pairIntoTeams(match.queue, eloData, randomize);
     match.bracket = generateTeamBracket(match.teams, eloData, randomize);
   } else {
     match.bracket = generateBracket(match.queue, eloData, randomize);
@@ -533,13 +533,178 @@ async function revealPrediction(client, predId, winnerId) {
 
 // ── Bo3 vote ──────────────────────────────────────────────────────────────────
 // Returns a promise that resolves when the 60s vote is done, with the result
-async function postBo3Vote(client, match) {
+// ── Team format vote (2v2 only) ───────────────────────────────────────────────
+async function postTeamFormatVote(client, match) {
+  if (!match.privateChannelId) return 'random';
+  return new Promise(async (resolve) => {
+    try {
+      const ch = await client.channels.fetch(match.privateChannelId);
+      const voteId = `teamfmt|${match.id}`;
+      const embed = new EmbedBuilder()
+        .setTitle('👥 Step 1 of 3 — Team Selection')
+        .setColor(DARK_BLUE)
+        .setDescription('How should teams be formed?\nPoll ends in **60 seconds** or when host force-closes.')
+        .addFields(
+          { name: '🎲 Random Teams', value: 'Teams balanced by ELO automatically', inline: true },
+          { name: '🤝 Pick Teammate', value: 'Each player chooses their own partner', inline: true },
+        )
+        .setTimestamp();
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`${voteId}|random`).setLabel('🎲 Random Teams').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`${voteId}|pick`).setLabel('🤝 Pick Teammate').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`${voteId}|close`).setLabel('Close Vote').setStyle(ButtonStyle.Danger),
+      );
+
+      const msg = await ch.send({ embeds: [embed], components: [row] });
+      const data = db.get();
+      if (!data.teamfmtvotes) data.teamfmtvotes = {};
+      data.teamfmtvotes[voteId] = { matchId: match.id, votes: {}, messageId: msg.id, channelId: match.privateChannelId, closed: false };
+      db.set(data);
+
+      const finish = async () => {
+        const fresh = db.get();
+        const vote = fresh.teamfmtvotes?.[voteId];
+        if (!vote || vote.closed) return;
+        vote.closed = true;
+        const tally = { random: 0, pick: 0 };
+        for (const v of Object.values(vote.votes || {})) if (v in tally) tally[v]++;
+        const winner = tally.pick > tally.random ? 'pick' : 'random';
+        db.set(fresh);
+        const resultEmbed = new EmbedBuilder()
+          .setTitle('✅ Team Selection Decided!')
+          .setColor(0x00c853)
+          .setDescription(winner === 'pick'
+            ? `**🤝 Pick Teammate** wins!\nRandom: ${tally.random} | Pick: ${tally.pick}`
+            : `**🎲 Random Teams** wins!\nRandom: ${tally.random} | Pick: ${tally.pick}`)
+          .setTimestamp();
+        try { await msg.edit({ embeds: [resultEmbed], components: [] }); } catch {}
+        resolve(winner);
+      };
+
+      if (!global._teamfmtFinishers) global._teamfmtFinishers = new Map();
+      global._teamfmtFinishers.set(voteId, finish);
+      setTimeout(finish, 60000);
+    } catch (e) { console.error('postTeamFormatVote error:', e.message); resolve('random'); }
+  });
+}
+
+// ── Team draft (2v2 only, when Pick Teammate wins) ────────────────────────────
+async function postTeamDraft(client, match) {
+  if (!match.privateChannelId) return null;
+  const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
+  if (!ch) return null;
+
+  const guild = await client.guilds.fetch(match.guildId).catch(() => null);
+  const getName = async (id) => {
+    try { return (await guild?.members.fetch(id))?.displayName || `<@${id}>`; } catch { return `<@${id}>`; }
+  };
+
+  const unpaired = shuffleItems([...match.queue]);
+  const teams = [];
+
+  while (unpaired.length >= 2) {
+    if (unpaired.length === 2) {
+      const teamLetter = String.fromCharCode(65 + teams.length);
+      teams.push([unpaired[0], unpaired[1]]);
+      const autoEmbed = new EmbedBuilder()
+        .setTitle(`✅ Team ${teamLetter} Formed!`)
+        .setColor(0x00c853)
+        .setDescription(`**Team ${teamLetter}:** <@${unpaired[0]}> & <@${unpaired[1]}>\n*(Last two players — auto-paired)*`)
+        .setTimestamp();
+      await ch.send({ embeds: [autoEmbed], allowedMentions: { parse: [] } }).catch(() => {});
+      unpaired.length = 0;
+      break;
+    }
+
+    const picker = unpaired[0];
+    const candidates = unpaired.slice(1);
+    const pickerName = await getName(picker);
+    const candidateNames = await Promise.all(candidates.map(id => getName(id)));
+
+    const teamsFormed = teams.map((t, i) =>
+      `**Team ${String.fromCharCode(65 + i)}:** <@${t[0]}> & <@${t[1]}>`
+    ).join('\n');
+
+    const embed = new EmbedBuilder()
+      .setTitle(`🤝 Team Draft — ${pickerName.slice(0, 30)}, pick your teammate`)
+      .setColor(DARK_BLUE)
+      .setDescription(`<@${picker}>, select your partner below!\n*60 seconds to pick — random if no response.*`)
+      .setTimestamp();
+    if (teamsFormed) embed.addFields({ name: '✅ Teams Formed', value: teamsFormed, inline: false });
+    embed.addFields({ name: '⏳ Available Players', value: unpaired.map(id => `<@${id}>`).join('\n'), inline: false });
+
+    const buttonRows = [];
+    for (let i = 0; i < candidates.length && buttonRows.length < 4; i += 5) {
+      const chunk = candidates.slice(i, i + 5);
+      buttonRows.push(new ActionRowBuilder().addComponents(
+        chunk.map((id, j) =>
+          new ButtonBuilder()
+            .setCustomId(`teampick|${match.id}|${picker}|${id}`)
+            .setLabel(candidateNames[i + j].slice(0, 20))
+            .setStyle(ButtonStyle.Primary)
+        )
+      ));
+    }
+    buttonRows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`teampick|${match.id}|${picker}|close`)
+        .setLabel('Skip (Host Only)')
+        .setStyle(ButtonStyle.Danger)
+    ));
+
+    const msg = await ch.send({
+      content: `<@${picker}>`,
+      embeds: [embed],
+      components: buttonRows,
+      allowedMentions: { users: [picker] },
+    }).catch(() => null);
+
+    const draftKey = `teampick|${match.id}|${picker}`;
+    const picked = await new Promise(resolve => {
+      if (!global._teamDraftResolvers) global._teamDraftResolvers = new Map();
+      const timeout = setTimeout(() => {
+        global._teamDraftResolvers.delete(draftKey);
+        resolve(candidates[Math.floor(Math.random() * candidates.length)]);
+      }, 60000);
+      global._teamDraftResolvers.set(draftKey, (targetId) => {
+        clearTimeout(timeout);
+        global._teamDraftResolvers.delete(draftKey);
+        if (targetId === '__skip__') {
+          resolve(candidates[Math.floor(Math.random() * candidates.length)]);
+        } else {
+          resolve(targetId);
+        }
+      });
+    });
+
+    const teamLetter = String.fromCharCode(65 + teams.length);
+    teams.push([picker, picked]);
+    unpaired.splice(unpaired.indexOf(picker), 1);
+    unpaired.splice(unpaired.indexOf(picked), 1);
+
+    const pickedName = candidateNames[candidates.indexOf(picked)] || `<@${picked}>`;
+    const resultEmbed = new EmbedBuilder()
+      .setTitle(`✅ Team ${teamLetter} Formed!`)
+      .setColor(0x00c853)
+      .setDescription(`**Team ${teamLetter}:** <@${picker}> & <@${picked}>`)
+      .setTimestamp();
+    if (msg) await msg.edit({ embeds: [resultEmbed], components: [] }).catch(() => {});
+    else await ch.send({ embeds: [resultEmbed], allowedMentions: { parse: [] } }).catch(() => {});
+  }
+
+  return teams.length ? teams : null;
+}
+
+// ── Bo3 vote ──────────────────────────────────────────────────────────────────
+// Returns a promise that resolves when the 60s vote is done, with the result
+async function postBo3Vote(client, match, { stepLabel = 'Step 1 of 2' } = {}) {
   if (!match.privateChannelId) return 'none';
   return new Promise(async (resolve) => {
     try {
       const ch = await client.channels.fetch(match.privateChannelId);
       const embed = new EmbedBuilder()
-        .setTitle('🗳️ Step 1 of 2 — Match Format Vote')
+        .setTitle(`🗳️ ${stepLabel} — Match Format Vote`)
         .setColor(DARK_BLUE)
         .setDescription('Vote on the match format! Poll ends in **60 seconds** or when host force-closes.')
         .addFields(
@@ -593,13 +758,13 @@ async function postBo3Vote(client, match) {
 }
 
 // ── Region vote ───────────────────────────────────────────────────────────────
-async function postRegionVote(client, match) {
+async function postRegionVote(client, match, { stepLabel = 'Step 2 of 2' } = {}) {
   if (!match.privateChannelId) return 'NA';
   return new Promise(async (resolve) => {
     try {
       const ch = await client.channels.fetch(match.privateChannelId);
       const embed = new EmbedBuilder()
-        .setTitle('🌍 Step 2 of 2 — Server Region Vote')
+        .setTitle(`🌍 ${stepLabel} — Server Region Vote`)
         .setColor(DARK_BLUE)
         .setDescription('Vote on which server region to play on! Poll ends in **60 seconds** or when host force-closes.')
         .addFields(
@@ -899,6 +1064,23 @@ async function startBracket(client, matchId) {
     } catch {}
   }
 
+  if (match.type === '2v2' && !match.testMatch) {
+    const teamFmt = await postTeamFormatVote(client, match);
+    if (teamFmt === 'pick') {
+      const freshForDraft = db.get();
+      const matchForDraft = freshForDraft.matches?.[matchId];
+      if (matchForDraft) {
+        const drafted = await postTeamDraft(client, matchForDraft);
+        if (drafted) {
+          match.draftedTeams = drafted;
+          const d = db.get();
+          if (d.matches[matchId]) d.matches[matchId].draftedTeams = drafted;
+          db.set(d);
+        }
+      }
+    }
+  }
+
   generateMatchBracket(match, eloData);
   match.eloStart = {};
   for (const playerId of match.queue) {
@@ -956,8 +1138,9 @@ async function startBracket(client, matchId) {
     } catch {}
   })().catch(error => console.error('match start notification failed:', error.message));
 
-  await postBo3Vote(client, match);
-  await postRegionVote(client, match);
+  const is2v2WithDraft = match.type === '2v2' && !match.testMatch;
+  await postBo3Vote(client, match, { stepLabel: is2v2WithDraft ? 'Step 2 of 3' : 'Step 1 of 2' });
+  await postRegionVote(client, match, { stepLabel: is2v2WithDraft ? 'Step 3 of 3' : 'Step 2 of 2' });
 
   const seededData = db.get();
   const seededMatch = seededData.matches[matchId];
@@ -1077,6 +1260,7 @@ module.exports = {
   postPredictionPoll, revealPrediction, scheduleMatchReminder,
   matchReminderTimers, dmUser, getMinPlayers,
   startVotesFromSeedPreview, reshuffleSeedPreview,
+  postTeamFormatVote, postTeamDraft,
 };
 
 

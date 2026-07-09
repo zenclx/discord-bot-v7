@@ -282,7 +282,11 @@ function generateTeamBracket(teams, eloData, randomize = false) {
 
 function generateMatchBracket(match, eloData, randomize = false) {
   if (match.type === '2v2' && !match.testMatch) {
-    match.teams = match.draftedTeams || pairIntoTeams(match.queue, eloData, randomize);
+    const preformed = match.preformedTeams || [];
+    const preformedSet = new Set(preformed.flat());
+    const remaining = (match.queue || []).filter(id => !preformedSet.has(id));
+    const extra = match.draftedTeams || pairIntoTeams(remaining, eloData, randomize);
+    match.teams = [...preformed, ...extra];
     match.bracket = generateTeamBracket(match.teams, eloData, randomize);
   } else {
     match.bracket = generateBracket(match.queue, eloData, randomize);
@@ -600,7 +604,8 @@ async function postTeamDraft(client, match) {
     try { return (await guild?.members.fetch(id))?.displayName || `<@${id}>`; } catch { return `<@${id}>`; }
   };
 
-  const unpaired = shuffleItems([...match.queue]);
+  const preformedSet = new Set((match.preformedTeams || []).flat());
+  const unpaired = shuffleItems(match.queue.filter(id => !preformedSet.has(id)));
   const teams = [];
 
   while (unpaired.length >= 2) {
@@ -1064,18 +1069,24 @@ async function startBracket(client, matchId) {
     } catch {}
   }
 
+  let ranTeamVote = false;
   if (match.type === '2v2' && !match.testMatch) {
-    const teamFmt = await postTeamFormatVote(client, match);
-    if (teamFmt === 'pick') {
-      const freshForDraft = db.get();
-      const matchForDraft = freshForDraft.matches?.[matchId];
-      if (matchForDraft) {
-        const drafted = await postTeamDraft(client, matchForDraft);
-        if (drafted) {
-          match.draftedTeams = drafted;
-          const d = db.get();
-          if (d.matches[matchId]) d.matches[matchId].draftedTeams = drafted;
-          db.set(d);
+    const preformedSet = new Set((match.preformedTeams || []).flat());
+    const allCovered = (match.queue || []).every(id => preformedSet.has(id));
+    if (!allCovered) {
+      ranTeamVote = true;
+      const teamFmt = await postTeamFormatVote(client, match);
+      if (teamFmt === 'pick') {
+        const freshForDraft = db.get();
+        const matchForDraft = freshForDraft.matches?.[matchId];
+        if (matchForDraft) {
+          const drafted = await postTeamDraft(client, matchForDraft);
+          if (drafted) {
+            match.draftedTeams = drafted;
+            const d = db.get();
+            if (d.matches[matchId]) d.matches[matchId].draftedTeams = drafted;
+            db.set(d);
+          }
         }
       }
     }
@@ -1138,9 +1149,8 @@ async function startBracket(client, matchId) {
     } catch {}
   })().catch(error => console.error('match start notification failed:', error.message));
 
-  const is2v2WithDraft = match.type === '2v2' && !match.testMatch;
-  await postBo3Vote(client, match, { stepLabel: is2v2WithDraft ? 'Step 2 of 3' : 'Step 1 of 2' });
-  await postRegionVote(client, match, { stepLabel: is2v2WithDraft ? 'Step 3 of 3' : 'Step 2 of 2' });
+  await postBo3Vote(client, match, { stepLabel: ranTeamVote ? 'Step 2 of 3' : 'Step 1 of 2' });
+  await postRegionVote(client, match, { stepLabel: ranTeamVote ? 'Step 3 of 3' : 'Step 2 of 2' });
 
   const seededData = db.get();
   const seededMatch = seededData.matches[matchId];

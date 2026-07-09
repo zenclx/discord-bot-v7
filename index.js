@@ -801,7 +801,13 @@ client.on('interactionCreate', async interaction => {
     if (match.privateChannelId) {
       try {
         const ch = await client.channels.fetch(match.privateChannelId);
-        await ch.send(`Winner recorded: <@${winnerId}> won Round ${round + 1}, Match ${matchIndex + 1}.`);
+        const winTeam = match.type === '2v2'
+          ? (winnerId === bracketMatch.p1 ? bracketMatch.teamA : bracketMatch.teamB)
+          : null;
+        const winDisplay = winTeam?.length
+          ? winTeam.map(id => `<@${id}>`).join(' & ')
+          : `<@${winnerId}>`;
+        await ch.send(`Winner recorded: ${winDisplay} won Round ${round + 1}, Match ${matchIndex + 1}.`);
       } catch {}
     }
 
@@ -833,6 +839,12 @@ client.on('interactionCreate', async interaction => {
         const champTag = champEntry
           ? (champEntry.winner === champEntry.p2 ? champEntry.p2Tag : champEntry.p1Tag) || ''
           : '';
+        const champTeam = match.type === '2v2' && champEntry
+          ? (champion === champEntry.p1 ? champEntry.teamA : champEntry.teamB) || null
+          : null;
+        const champDisplay = champTeam?.length
+          ? champTeam.map(id => `<@${id}>`).join(' & ')
+          : `<@${champion}>`;
         const eloData = getEloData(db.get());
         const eloSummary = buildMatchEloSummary(match, eloData);
 
@@ -841,7 +853,7 @@ client.on('interactionCreate', async interaction => {
             const ch = await client.channels.fetch(match.privateChannelId);
             const finalEmbed = new EmbedBuilder()
               .setTitle('🏆 Tournament Complete!').setColor(0xffd700)
-              .setDescription(`👑 **Champion: <@${champion}>**${champTag ? ` (${champTag})` : ''}\n\nGG to all players!${match.prize ? `\n\n🎁 **Prize:** ${match.prize}` : ''}`)
+              .setDescription(`👑 **Champion: ${champDisplay}**${champTag ? ` (${champTag})` : ''}\n\nGG to all players!${match.prize ? `\n\n🎁 **Prize:** ${match.prize}` : ''}`)
               .addFields({ name: 'Match ELO Changes', value: eloSummary.slice(0, 1024), inline: false })
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
@@ -849,7 +861,7 @@ client.on('interactionCreate', async interaction => {
           scheduleChannelDelete(client, match.privateChannelId);
         }
 
-        finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` }).catch(() => null);
+        finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: ${champDisplay}` }).catch(() => null);
 
         try {
           const logChannelId = db.get().settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
@@ -862,7 +874,7 @@ client.on('interactionCreate', async interaction => {
             const logEmbed = new EmbedBuilder()
               .setTitle(`Match #${match.matchNum ?? '?'} Complete`)
               .setColor(0xffd700)
-              .setDescription(`Champion: <@${champion}>`)
+              .setDescription(`Champion: ${champDisplay}`)
               .addFields(
                 { name: 'Host', value: hostDisplay, inline: true },
                 { name: 'ELO Changes', value: eloSummary.slice(0, 1024), inline: false },
@@ -883,9 +895,11 @@ client.on('interactionCreate', async interaction => {
           await postOrUpdateBracket(client, match);
         })().catch(error => console.error('match completion background updates failed:', error.message));
 
-        await dmUser(client, champion,
-          `🏆 **Congratulations!** You won Match #${match.matchNum ?? '?'} (${match.type.toUpperCase()})!${match.prize ? `\n🎁 Prize: ${match.prize}` : ''}`
-        );
+        for (const playerId of (champTeam || [champion])) {
+          await dmUser(client, playerId,
+            `🏆 **Congratulations!** You won Match #${match.matchNum ?? '?'} (${match.type.toUpperCase()})!${match.prize ? `\n🎁 Prize: ${match.prize}` : ''}`
+          );
+        }
 
         return finalReplyPromise || interaction.editReply({ content: `Tournament over! Champion: <@${champion}>` });
       }

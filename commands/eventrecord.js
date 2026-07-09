@@ -183,12 +183,16 @@ module.exports = {
     if (subcommand === 'sync') {
       const source = interaction.options.getString('source') || 'both';
       const result = await syncCoordinatorRanks(interaction.client, interaction.guildId, source);
+      const removedText = result.removed?.length
+        ? `\nRemoved **${result.removed.length}** coordinator${result.removed.length === 1 ? '' : 's'} who no longer hold the role: ${result.removed.map(id => `<@${id}>`).join(', ')}`
+        : '';
       const warningText = result.warnings.length
         ? `\nWarnings:\n${result.warnings.slice(0, 6).join('\n')}`
         : '';
       return interaction.editReply(
         `Synced **${result.counts.total}** coordinator payout ranks.\n` +
         `Junior: **${result.counts.junior}** | Coordinator: **${result.counts.coordinator}** | Senior: **${result.counts.senior}**` +
+        removedText +
         warningText
       );
     }

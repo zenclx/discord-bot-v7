@@ -340,10 +340,15 @@ async function syncCoordinatorRanks(client, guildId, source = 'both') {
   const synced = [];
   const warnings = [];
 
+  const confirmed = new Set();
+  const discordChecked = new Set();
+  let discordScanFailed = false;
+
   if (useDiscord) {
     const guild = await client.guilds.fetch(guildId).catch(() => null);
     if (!guild) {
       warnings.push('Discord guild could not be fetched.');
+      discordScanFailed = true;
     } else {
       let members;
       try {
@@ -354,13 +359,17 @@ async function syncCoordinatorRanks(client, guildId, source = 'both') {
       }
 
       for (const member of members.values()) {
+        discordChecked.add(member.id);
         const rank = getRankFromMember(member, null);
         if (!rank) continue;
         store.hostRanks[member.id] = rank;
+        confirmed.add(member.id);
         synced.push({ discordUserId: member.id, rank, source: 'discord' });
       }
     }
   }
+
+  const robloxChecked = new Set();
 
   if (useRoblox) {
     for (const [discordUserId, link] of Object.entries(links)) {
@@ -368,11 +377,37 @@ async function syncCoordinatorRanks(client, guildId, source = 'both') {
       try {
         const membership = await getGroupMembership(link.robloxUserId);
         const rank = getRankFromRobloxRoles(getMembershipRoles(membership));
+        robloxChecked.add(discordUserId);
         if (!rank) continue;
         store.hostRanks[discordUserId] = rank;
+        confirmed.add(discordUserId);
         synced.push({ discordUserId, rank, source: 'roblox', robloxUserId: link.robloxUserId });
       } catch (error) {
         warnings.push(`${link.robloxUsername || link.robloxUserId}: ${error.message}`);
+      }
+    }
+  }
+
+  const removed = [];
+  if (!discordScanFailed) {
+    for (const existingUserId of Object.keys(store.hostRanks)) {
+      if (confirmed.has(existingUserId)) continue;
+
+      let shouldRemove = false;
+      if (useDiscord && !useRoblox) {
+        shouldRemove = discordChecked.has(existingUserId);
+      } else if (!useDiscord && useRoblox) {
+        shouldRemove = robloxChecked.has(existingUserId);
+      } else {
+        const discordSaysNo = discordChecked.has(existingUserId);
+        const hasRobloxLink = Boolean(links[existingUserId]?.robloxUserId);
+        const robloxSaysNo = hasRobloxLink ? robloxChecked.has(existingUserId) : true;
+        shouldRemove = discordSaysNo && robloxSaysNo;
+      }
+
+      if (shouldRemove) {
+        delete store.hostRanks[existingUserId];
+        removed.push(existingUserId);
       }
     }
   }
@@ -382,6 +417,7 @@ async function syncCoordinatorRanks(client, guildId, source = 'both') {
 
   return {
     synced,
+    removed,
     warnings,
     counts: {
       total: synced.length,

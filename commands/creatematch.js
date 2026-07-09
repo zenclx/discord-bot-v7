@@ -277,7 +277,7 @@ function generateTeamBracket(teams, eloData, randomize = false) {
     const t = seededTeams[seededTeams.length - 1];
     round.push({ p1: t[0], p2: null, winner: t[0], bye: true, byePlayer: true, p1Tag: `Team ${String.fromCharCode(65 + seededTeams.length - 1)}`, teamA: t });
   }
-  return [round];
+  return { bracket: [round], seededTeams };
 }
 
 function generateMatchBracket(match, eloData, randomize = false) {
@@ -286,8 +286,10 @@ function generateMatchBracket(match, eloData, randomize = false) {
     const preformedSet = new Set(preformed.flat());
     const remaining = (match.queue || []).filter(id => !preformedSet.has(id));
     const extra = match.draftedTeams || pairIntoTeams(remaining, eloData, randomize);
-    match.teams = [...preformed, ...extra];
-    match.bracket = generateTeamBracket(match.teams, eloData, randomize);
+    const allTeams = [...preformed, ...extra];
+    const { bracket, seededTeams } = generateTeamBracket(allTeams, eloData, randomize);
+    match.teams = seededTeams; // keep in seeded order so Team A/B/C labels match the bracket
+    match.bracket = bracket;
   } else {
     match.bracket = generateBracket(match.queue, eloData, randomize);
   }

@@ -97,7 +97,7 @@ function makeEventId(guildId) {
 function uniqueAttendeeCount(match) {
   return new Set([
     ...(match.queue || []),
-    ...((match.teams || []).flat ? match.teams.flat() : []),
+    ...(match.teams || []).flat(),
   ].filter(Boolean)).size;
 }
 

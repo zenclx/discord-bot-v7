@@ -1473,6 +1473,7 @@ module.exports = {
   startVotesFromSeedPreview, reshuffleSeedPreview,
   postTeamFormatVote, postTeamDraft,
   createMatchVoiceChannel, scheduleScreenshareCheck, SCREENSHARE_ROLE_ID, SCREENSHARE_DQ_MINUTES,
+  postSeedPreview,
 };
 
 

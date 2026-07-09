@@ -622,9 +622,11 @@ client.on('interactionCreate', async interaction => {
   // ── Change match type (1v1 ↔ 2v2) ──────────────────────────────────────────
   if (customId.startsWith('changetype_')) {
     const matchId = customId.replace('changetype_', '');
-    if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ Staff only.', flags: 64 });
     const data = db.get();
     const match = data.matches?.[matchId];
+    if (!canManageMatch(interaction.member) && interaction.user.id !== match?.hostId) {
+      return interaction.reply({ content: '❌ Host or staff only.', flags: 64 });
+    }
     if (!match || !['queuing', 'checking'].includes(match.status)) {
       return interaction.reply({ content: '❌ Match is not in queuing or check-in phase.', flags: 64 });
     }

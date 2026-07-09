@@ -62,6 +62,8 @@ module.exports = {
       return interaction.reply({ content: `<@${player.id}> is already in this queue.`, flags: 64 });
     }
 
+    await interaction.deferReply({ flags: 64 });
+
     match.queue.push(player.id);
     if (match.status === 'checking') {
       if (!match.checkIns) match.checkIns = {};
@@ -103,11 +105,10 @@ module.exports = {
       console.error('addplayer queue message update failed:', error.message);
     }
 
-    await interaction.reply({
+    await interaction.editReply({
       content: match.status === 'bracket'
         ? `Added <@${player.id}> to Match #${match.matchNum ?? '?'} roster/channel. The current bracket was not changed.`
         : `Added <@${player.id}> to Match #${match.matchNum ?? '?'} (${match.queue.length}/${getMinPlayers(match)} players).`,
-      flags: 64,
     });
   },
 };

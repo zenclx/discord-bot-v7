@@ -461,6 +461,7 @@ async function postOrUpdateBracket(client, match) {
     }
     const msg = await ch.send({ embeds: [embed], files: [attachment], components });
     match.bracketMessageId = msg.id;
+    msg.pin().catch(() => {});
     const data = db.get();
     data.matches[match.id] = match;
     db.set(data);

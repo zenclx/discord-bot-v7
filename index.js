@@ -543,8 +543,9 @@ client.on('interactionCreate', async interaction => {
     if (!data.matches) data.matches = {};
     const match = data.matches[matchId];
     if (!match || !['queuing', 'checking'].includes(match.status)) return interaction.reply({ content: 'Queue is already closed.', flags: 64 });
-    if (interaction.user.id !== match.hostId && !canManageMatch(interaction.member)) {
-      return interaction.reply({ content: 'Only the host or match staff can cancel this queue.', flags: 64 });
+    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
+    if (interaction.user.id !== match.hostId && !isAdmin) {
+      return interaction.reply({ content: 'Only the host or an admin can cancel this queue.', flags: 64 });
     }
     const t = timers.get(matchId);
     if (t) {
@@ -665,10 +666,13 @@ client.on('interactionCreate', async interaction => {
 
   if (customId.startsWith('cancel_match_')) {
     const matchId = customId.replace('cancel_match_', '');
-    if (!canManageMatch(interaction.member)) return interaction.reply({ content: 'Staff only.', flags: 64 });
     const data = db.get();
     const match = data.matches?.[matchId];
     if (!match) return interaction.reply({ content: 'Match not found.', flags: 64 });
+    const isCancelAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
+    if (interaction.user.id !== match.hostId && !isCancelAdmin) {
+      return interaction.reply({ content: 'Only the host or an admin can cancel this match.', flags: 64 });
+    }
     match.status = 'cancelled';
     data.matches[matchId] = match;
     db.set(data);

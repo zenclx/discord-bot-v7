@@ -248,10 +248,10 @@ function generateBracket(players, eloData, randomize = false) {
 function pairIntoTeams(players, eloData, randomize = false) {
   const seeded = randomize ? shuffleItems(players) : getSeededPlayers(players, eloData);
   const teams = [];
-  while (seeded.length) {
+  while (seeded.length >= 2) {
     const high = seeded.shift();
     const low = seeded.pop();
-    teams.push([high, low].filter(Boolean));
+    teams.push([high, low]);
   }
   return teams;
 }
@@ -1288,6 +1288,29 @@ async function startBracket(client, matchId) {
             if (d.matches[matchId]) d.matches[matchId].draftedTeams = drafted;
             db.set(d);
           }
+        }
+      }
+
+      // If there's an odd number of unpaired players, one must sit out
+      const preformedSetFinal = new Set((match.preformedTeams || []).flat());
+      const unpairedFinal = (match.queue || []).filter(id => !preformedSetFinal.has(id));
+      if (unpairedFinal.length % 2 !== 0) {
+        let sittingOut;
+        let sitOutReason;
+        if (teamFmt === 'pick' && match.draftedTeams?.length) {
+          const draftedSet = new Set(match.draftedTeams.flat());
+          sittingOut = unpairedFinal.find(id => !draftedSet.has(id));
+          sitOutReason = 'was not picked during team selection and will not play in this match';
+        } else {
+          sittingOut = unpairedFinal[Math.floor(Math.random() * unpairedFinal.length)];
+          sitOutReason = 'was randomly selected to sit out (odd number of players) and will not play in this match';
+        }
+        if (sittingOut) {
+          match.queue = match.queue.filter(id => id !== sittingOut);
+          try {
+            const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
+            if (ch) await ch.send(`⚠️ <@${sittingOut}> ${sitOutReason}.`).catch(() => {});
+          } catch {}
         }
       }
     }

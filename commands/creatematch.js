@@ -18,6 +18,8 @@ const matchReminderTimers = new Map();
 const MATCH_MANAGER_ROLES = ['1387600871377993820'];
 const MATCH_CATEGORY_ID = '1511861274005471282';
 const REMINDER_AFTER_MS = 15 * 60 * 1000;
+const SCREENSHARE_ROLE_ID = '1408292481233326275';
+const SCREENSHARE_DQ_MINUTES = 5;
 const DEFAULT_LOG_CHANNEL_ID = '1384695119243907132';
 const MATCH_PING_ROLE_ID = process.env.VERIFIED_COMPETITOR_ROLE_ID || process.env.MATCH_PING_ROLE_ID || '1333145733955850348';
 
@@ -398,13 +400,179 @@ async function createMatchChannel(client, match) {
   } catch (e) { console.error('createMatchChannel error:', e.message); return null; }
 }
 
-async function scheduleChannelDelete(client, channelId) {
+async function scheduleChannelDelete(client, channelId, vcChannelId = null) {
   setTimeout(async () => {
     try { await (await client.channels.fetch(channelId)).send('⚠️ **This channel will be deleted in 10 seconds.**'); } catch {}
   }, 50000);
   setTimeout(async () => {
     try { await (await client.channels.fetch(channelId)).delete('Match complete'); } catch {}
+    if (vcChannelId) {
+      try { await (await client.channels.fetch(vcChannelId)).delete('Match complete'); } catch {}
+    }
   }, 60000);
+}
+
+async function createMatchVoiceChannel(client, match) {
+  try {
+    const guild = await client.guilds.fetch(match.guildId);
+    const data = db.get();
+    const configuredManagerRoles = data.settings?.[match.guildId]?.matchManagerRoles || [];
+    const managerRoles = [...new Set([...MATCH_MANAGER_ROLES, ...configuredManagerRoles])];
+    const overwrites = [
+      { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: client.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.Connect,
+          PermissionFlagsBits.ManageChannels,
+        ],
+      },
+      ...match.queue.map(id => ({
+        id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.Connect,
+          PermissionFlagsBits.Stream,
+          PermissionFlagsBits.UseVAD,
+          PermissionFlagsBits.Speak,
+        ],
+      })),
+      ...managerRoles.map(id => ({
+        id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
+      })),
+    ];
+    return await guild.channels.create({
+      name: `vc-match-${match.matchNum ?? 0}`,
+      type: ChannelType.GuildVoice,
+      parent: MATCH_CATEGORY_ID,
+      permissionOverwrites: overwrites,
+    });
+  } catch (e) { console.error('createMatchVoiceChannel error:', e.message); return null; }
+}
+
+async function scheduleScreenshareCheck(client, matchId, vcChannelId) {
+  setTimeout(async () => {
+    try {
+      const data = db.get();
+      const match = data.matches?.[matchId];
+      if (!match || match.status !== 'bracket') return;
+
+      const vc = await client.channels.fetch(vcChannelId).catch(() => null);
+      if (!vc) return;
+
+      const membersInVc = new Set(vc.members.keys());
+      const guild = await client.guilds.fetch(match.guildId).catch(() => null);
+      if (!guild) return;
+
+      const needVc = new Set();
+      for (const playerId of match.queue) {
+        const member = await guild.members.fetch(playerId).catch(() => null);
+        if (member?.roles.cache.has(SCREENSHARE_ROLE_ID)) needVc.add(playerId);
+      }
+      if (!needVc.size) return;
+
+      const missingVc = [...needVc].filter(id => !membersInVc.has(id));
+      if (!missingVc.length) return;
+
+      const currentRound = match.bracket[match.currentRound];
+      if (!currentRound) return;
+
+      const dqAnnouncements = [];
+      let anyDq = false;
+
+      for (const bm of currentRound) {
+        if (bm.winner || bm.bye) continue;
+        if (match.type === '2v2') {
+          const teamAMissing = (bm.teamA || []).some(id => missingVc.includes(id));
+          const teamBMissing = (bm.teamB || []).some(id => missingVc.includes(id));
+          if (teamAMissing && !teamBMissing) {
+            bm.winner = bm.p2;
+            bm.resultReason = 'VC screenshare DQ';
+            const dqNames = (bm.teamA || []).filter(id => missingVc.includes(id)).map(id => `<@${id}>`).join(', ');
+            dqAnnouncements.push(`🚫 **VC DQ:** ${bm.teamLabel1 || 'Team A'} (${dqNames}) did not join VC — ${bm.teamLabel2 || 'Team B'} advances.`);
+            anyDq = true;
+          } else if (teamBMissing && !teamAMissing) {
+            bm.winner = bm.p1;
+            bm.resultReason = 'VC screenshare DQ';
+            const dqNames = (bm.teamB || []).filter(id => missingVc.includes(id)).map(id => `<@${id}>`).join(', ');
+            dqAnnouncements.push(`🚫 **VC DQ:** ${bm.teamLabel2 || 'Team B'} (${dqNames}) did not join VC — ${bm.teamLabel1 || 'Team A'} advances.`);
+            anyDq = true;
+          }
+        } else {
+          const p1Missing = bm.p1 && missingVc.includes(bm.p1);
+          const p2Missing = bm.p2 && missingVc.includes(bm.p2);
+          if (p1Missing && !p2Missing) {
+            bm.winner = bm.p2;
+            bm.resultReason = 'VC screenshare DQ';
+            dqAnnouncements.push(`🚫 **VC DQ:** <@${bm.p1}> did not join VC — <@${bm.p2}> advances.`);
+            anyDq = true;
+          } else if (p2Missing && !p1Missing) {
+            bm.winner = bm.p1;
+            bm.resultReason = 'VC screenshare DQ';
+            dqAnnouncements.push(`🚫 **VC DQ:** <@${bm.p2}> did not join VC — <@${bm.p1}> advances.`);
+            anyDq = true;
+          }
+        }
+      }
+
+      if (!anyDq) return;
+
+      data.matches[matchId] = match;
+      db.set(data);
+      saveToDiscord(client).catch(() => {});
+
+      if (match.privateChannelId) {
+        try {
+          const ch = await client.channels.fetch(match.privateChannelId);
+          await ch.send(`⏰ **Screenshare check complete (${SCREENSHARE_DQ_MINUTES}min):**\n${dqAnnouncements.join('\n')}`);
+        } catch {}
+      }
+
+      const roundComplete = currentRound.every(m => m.winner !== null);
+      if (roundComplete) {
+        const uniqueWinners = [...new Set(currentRound.map(m => m.winner))];
+        if (uniqueWinners.length === 1) {
+          const champion = uniqueWinners[0];
+          match.status = 'complete';
+          match.champion = champion;
+          const completeData = db.get();
+          completeData.matches[matchId] = match;
+          db.set(completeData);
+          saveToDiscord(client).catch(() => {});
+          if (match.privateChannelId) {
+            try {
+              const ch = await client.channels.fetch(match.privateChannelId);
+              const champEntry = currentRound.find(m => m.winner === champion);
+              const champTeam = match.type === '2v2' && champEntry
+                ? (champion === champEntry.p1 ? champEntry.teamA : champEntry.teamB) || null
+                : null;
+              const champDisplay = champTeam?.length
+                ? champTeam.map(id => `<@${id}>`).join(' & ')
+                : `<@${champion}>`;
+              await ch.send(`🏆 **Tournament Complete via VC DQ!**\nChampion: ${champDisplay}`);
+            } catch {}
+            scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
+          }
+        } else {
+          const nextRound = buildNextRound(currentRound);
+          try {
+            const g2 = await client.guilds.fetch(match.guildId);
+            if (match.type === '1v1') await fetchDisplayNames(g2, nextRound);
+          } catch {}
+          match.bracket.push(nextRound);
+          match.currentRound = match.currentRound + 1;
+          const advData = db.get();
+          advData.matches[matchId] = match;
+          db.set(advData);
+          saveToDiscord(client).catch(() => {});
+        }
+      }
+
+      await postOrUpdateBracket(client, match);
+    } catch (e) { console.error('scheduleScreenshareCheck error:', e.message); }
+  }, SCREENSHARE_DQ_MINUTES * 60 * 1000);
 }
 
 // ── Logging ───────────────────────────────────────────────────────────────────
@@ -959,6 +1127,35 @@ async function startVotesFromSeedPreview(client, matchId) {
   if (!freshMatch?.bracket?.length) return false;
   await postOrUpdateBracket(client, freshMatch);
 
+  if (!freshMatch.vcChannelId) {
+    const vc = await createMatchVoiceChannel(client, freshMatch);
+    if (vc) {
+      freshMatch.vcChannelId = vc.id;
+      const vcData = db.get();
+      if (vcData.matches[matchId]) vcData.matches[matchId].vcChannelId = vc.id;
+      db.set(vcData);
+      saveToDiscord(client).catch(() => {});
+      if (freshMatch.privateChannelId) {
+        try {
+          const guild = await client.guilds.fetch(freshMatch.guildId);
+          const vcPlayers = [];
+          for (const playerId of freshMatch.queue) {
+            const member = await guild.members.fetch(playerId).catch(() => null);
+            if (member?.roles.cache.has(SCREENSHARE_ROLE_ID)) vcPlayers.push(playerId);
+          }
+          if (vcPlayers.length) {
+            const ch = await client.channels.fetch(freshMatch.privateChannelId);
+            await ch.send({
+              content: `${vcPlayers.map(id => `<@${id}>`).join(' ')} — Join <#${vc.id}> and **enable screenshare** before your match starts! ⚠️ You have **${SCREENSHARE_DQ_MINUTES} minutes** to join or you'll be **auto-DQ'd**.`,
+              allowedMentions: { users: vcPlayers },
+            });
+          }
+        } catch (e) { console.error('VC notification error:', e.message); }
+      }
+      scheduleScreenshareCheck(client, matchId, vc.id);
+    }
+  }
+
   if (alreadyConfirmed) return true;
 
   for (let i = 0; i < freshMatch.bracket[0].length; i++) {
@@ -1274,6 +1471,7 @@ module.exports = {
   matchReminderTimers, dmUser, getMinPlayers,
   startVotesFromSeedPreview, reshuffleSeedPreview,
   postTeamFormatVote, postTeamDraft,
+  createMatchVoiceChannel, scheduleScreenshareCheck, SCREENSHARE_ROLE_ID, SCREENSHARE_DQ_MINUTES,
 };
 
 

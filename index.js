@@ -52,6 +52,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
   ],
 });
 client.commands = new Collection();
@@ -858,7 +859,7 @@ client.on('interactionCreate', async interaction => {
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
           } catch {}
-          scheduleChannelDelete(client, match.privateChannelId);
+          scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null);
         }
 
         finalReplyPromise = interaction.editReply({ content: `Tournament over! Champion: ${champDisplay}` }).catch(() => null);

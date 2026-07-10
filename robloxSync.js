@@ -267,6 +267,8 @@ async function syncRobloxTierForDiscordUser(client, guildId, discordUserId, tier
   return { skipped: false, robloxUserId: link.robloxUserId, robloxUsername: link.robloxUsername, targetRoleId, removed, roles: desiredRoles };
 }
 
+const TIER_ORDER = ['I', 'II', 'III', 'IV', 'V']; // index 0 = highest tier
+
 async function syncRobloxUpdateForDiscordUser(client, guildId, discordUserId, fallbackTier) {
   const data = db.get();
   const link = getRobloxLinks(data, guildId)[discordUserId];
@@ -285,22 +287,33 @@ async function syncRobloxUpdateForDiscordUser(client, guildId, discordUserId, fa
   }
 
   const currentRoles = getMembershipRoles(membership);
-  const existingTierRole = ['I', 'II', 'III', 'IV', 'V']
+  const existingTierEntry = ['I', 'II', 'III', 'IV', 'V']
     .map(tier => [tier, TIER_ROLE_IDS[tier]])
     .find(([, roleId]) => currentRoles.includes(roleId));
-  const targetRoleId = existingTierRole?.[1] || fallbackRoleId;
+
+  // Check if the ELO tier is higher than the current Roblox group tier → upgrade
+  const eloTierName = fallbackTier?.tier || fallbackTier;
+  const eloTierIndex = TIER_ORDER.indexOf(eloTierName);
+  const existingTierIndex = existingTierEntry ? TIER_ORDER.indexOf(existingTierEntry[0]) : Infinity;
+  const shouldUpgrade = eloTierIndex < existingTierIndex; // lower index = higher tier
+
+  const targetRoleId = (!existingTierEntry || shouldUpgrade) ? fallbackRoleId : existingTierEntry[1];
   const added = [];
   let roles = currentRoles;
 
-  if (!existingTierRole) {
+  if (!existingTierEntry || shouldUpgrade) {
     try {
+      if (shouldUpgrade && existingTierEntry) {
+        await unassignRole(membershipId, existingTierEntry[1]);
+      }
       await assignRole(membershipId, targetRoleId);
     } catch (error) {
-      console.warn(`assign default tier failed for membership ${membershipId}, trying PATCH fallback: ${error.message}`);
-      await setMembershipRoles(membershipId, [...new Set([...currentRoles, targetRoleId])]);
+      console.warn(`assign tier failed for membership ${membershipId}, trying PATCH fallback: ${error.message}`);
+      const withoutOld = currentRoles.filter(r => r !== existingTierEntry?.[1]);
+      await setMembershipRoles(membershipId, [...new Set([...withoutOld, targetRoleId])]);
     }
     added.push(targetRoleId);
-    roles = [...new Set([...currentRoles, targetRoleId])];
+    roles = [...new Set([...currentRoles.filter(r => r !== existingTierEntry?.[1]), targetRoleId])];
   }
 
   const tier = Object.entries(TIER_ROLE_IDS).find(([, roleId]) => roleId === targetRoleId)?.[0] || fallbackTier?.tier || fallbackTier;
@@ -328,7 +341,7 @@ async function syncRobloxUpdateForDiscordUser(client, guildId, discordUserId, fa
     robloxUsername: link.robloxUsername,
     targetRoleId,
     added,
-    removed: [],
+    removed: shouldUpgrade && existingTierEntry ? [existingTierEntry[1]] : [],
     roles,
   };
 }

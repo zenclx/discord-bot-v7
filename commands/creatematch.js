@@ -451,7 +451,7 @@ async function createAnnouncementsChannel(client, match) {
     const configuredManagerRoles = data.settings?.[match.guildId]?.matchManagerRoles || [];
     const managerRoles = [...new Set([...MATCH_MANAGER_ROLES, ...configuredManagerRoles])];
     const overwrites = [
-      { id: guild.roles.everyone, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
+      { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
       {
         id: client.user.id,
         allow: [
@@ -464,6 +464,7 @@ async function createAnnouncementsChannel(client, match) {
           PermissionFlagsBits.ManageMessages,
         ],
       },
+      ...match.queue.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] })),
       ...managerRoles.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
     ];
     return await guild.channels.create({

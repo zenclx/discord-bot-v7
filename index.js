@@ -413,6 +413,53 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: `✅ You picked <@${targetUserId}> as your teammate!`, flags: 64 });
   }
 
+  // ── Captain mode prompt buttons (3v3 only) ────────────────────────────────
+  // Format: captainmode|matchId|choice
+  if (customId.startsWith('captainmode|')) {
+    const parts = customId.split('|');
+    if (parts.length !== 3) return interaction.reply({ content: '❌ Invalid button.', flags: 64 });
+    const [, matchId, choice] = parts;
+    const voteId = `captainmode|${matchId}`;
+    const match = db.get().matches?.[matchId];
+    if (interaction.user.id !== match?.hostId && !canManageMatch(interaction.member)) {
+      return interaction.reply({ content: '❌ Only the host can decide the team format.', flags: 64 });
+    }
+    const finisher = global._captainModeFinishers?.get(voteId);
+    if (!finisher) return interaction.reply({ content: '❌ Already decided.', flags: 64 });
+    global._captainModeFinishers.delete(voteId);
+    await finisher(choice);
+    const label = choice === 'captains' ? '👑 Team Captains' : '⚖️ Auto Balance';
+    return interaction.reply({ content: `✅ **${label}** selected!`, flags: 64 });
+  }
+
+  // ── Captain draft pick buttons (3v3 only) ─────────────────────────────────
+  // Format: captainpick|matchId|captainUserId|targetUserId (or 'close')
+  if (customId.startsWith('captainpick|')) {
+    const parts = customId.split('|');
+    if (parts.length !== 4) return interaction.reply({ content: '❌ Invalid pick.', flags: 64 });
+    const [, matchId, captainId, targetId] = parts;
+    const draftKey = `captainpick|${matchId}|${captainId}`;
+
+    if (targetId === 'close') {
+      if (!canManageMatch(interaction.member)) return interaction.reply({ content: '❌ Staff only.', flags: 64 });
+      const resolver = global._captainDraftResolvers?.get(draftKey);
+      if (resolver) { global._captainDraftResolvers.delete(draftKey); resolver('__skip__'); }
+      else return interaction.reply({ content: '❌ No active pick to skip.', flags: 64 });
+      return interaction.reply({ content: '✅ Pick skipped — random assignment used.', flags: 64 });
+    }
+
+    if (interaction.user.id !== captainId) {
+      return interaction.reply({ content: `❌ It's <@${captainId}>'s turn to pick.`, flags: 64 });
+    }
+
+    const resolver = global._captainDraftResolvers?.get(draftKey);
+    if (!resolver) return interaction.reply({ content: '❌ Pick already made or expired.', flags: 64 });
+
+    global._captainDraftResolvers.delete(draftKey);
+    resolver(targetId);
+    return interaction.reply({ content: `✅ You picked <@${targetId}>!`, flags: 64 });
+  }
+
   // ── Prediction vote buttons ───────────────────────────────────────────────
   // Format: pred|matchId|round|matchIndex|p1 or p2
   if (customId.startsWith('pred|')) {

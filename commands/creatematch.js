@@ -311,7 +311,7 @@ function generateMatchBracket(match, eloData, randomize = false) {
     const preformedSet = new Set(preformed.flat());
     const remaining = (match.queue || []).filter(id => !preformedSet.has(id));
     const extra = match.type === '3v3'
-      ? pairIntoTrios(remaining, eloData, randomize)
+      ? (match.draftedTeams || pairIntoTrios(remaining, eloData, randomize))
       : (match.draftedTeams || pairIntoTeams(remaining, eloData, randomize));
     const allTeams = [...preformed, ...extra];
     const { bracket, seededTeams } = generateTeamBracket(allTeams, eloData, randomize);
@@ -954,6 +954,197 @@ async function postTeamDraft(client, match) {
   return teams.length ? teams : null;
 }
 
+// ── Captain mode prompt (3v3 only) ───────────────────────────────────────────
+async function postCaptainModePrompt(client, match) {
+  if (!match.privateChannelId) return 'auto';
+  return new Promise(async (resolve) => {
+    try {
+      const ch = await client.channels.fetch(match.privateChannelId);
+      const voteId = `captainmode|${match.id}`;
+      const embed = new EmbedBuilder()
+        .setTitle('👑 3v3 Team Formation')
+        .setColor(DARK_BLUE)
+        .setDescription('How should teams be formed?\n*Host has 30 seconds to decide.*')
+        .addFields(
+          { name: '👑 Team Captains', value: 'Top 3 ELO players become captains and pick teammates', inline: true },
+          { name: '⚖️ Auto Balance', value: 'Teams formed automatically by ELO', inline: true },
+        )
+        .setTimestamp();
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`${voteId}|captains`).setLabel('👑 Team Captains').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`${voteId}|auto`).setLabel('⚖️ Auto Balance').setStyle(ButtonStyle.Primary),
+      );
+
+      const msg = await ch.send({
+        content: `<@${match.hostId}>`,
+        embeds: [embed],
+        components: [row],
+        allowedMentions: { users: [match.hostId] },
+      });
+
+      const finish = async (choice) => {
+        try { await msg.edit({ components: [] }); } catch {}
+        resolve(choice);
+      };
+
+      if (!global._captainModeFinishers) global._captainModeFinishers = new Map();
+      global._captainModeFinishers.set(voteId, finish);
+
+      setTimeout(() => {
+        const f = global._captainModeFinishers?.get(voteId);
+        if (f) { global._captainModeFinishers.delete(voteId); f('auto'); }
+      }, 30000);
+    } catch (e) { console.error('postCaptainModePrompt error:', e.message); resolve('auto'); }
+  });
+}
+
+// ── Captain draft (3v3 only) ─────────────────────────────────────────────────
+async function postCaptainDraft(client, match) {
+  if (!match.privateChannelId) return null;
+  const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
+  if (!ch) return null;
+
+  const data = db.get();
+  const eloData = getEloData(data);
+
+  const guild = await client.guilds.fetch(match.guildId).catch(() => null);
+  const getName = async (id) => {
+    try { return (await guild?.members.fetch(id))?.displayName || `<@${id}>`; } catch { return `<@${id}>`; }
+  };
+
+  // Top 3 ELO become captains
+  const sorted = [...match.queue].sort((a, b) =>
+    (getPlayerElo(eloData, b).elo || 0) - (getPlayerElo(eloData, a).elo || 0)
+  );
+  const captains = sorted.slice(0, 3);
+  const pool = sorted.slice(3);
+  const teams = captains.map(cap => [cap]);
+
+  const captainNames = await Promise.all(captains.map(getName));
+  const captainEmbed = new EmbedBuilder()
+    .setTitle('👑 Team Captains Selected')
+    .setColor(DARK_BLUE)
+    .setDescription('The top 3 ELO players are captains. They take turns picking teammates.')
+    .addFields(
+      { name: 'Captain A', value: `<@${captains[0]}>`, inline: true },
+      { name: 'Captain B', value: `<@${captains[1]}>`, inline: true },
+      { name: 'Captain C', value: `<@${captains[2]}>`, inline: true },
+    )
+    .setTimestamp();
+  await ch.send({ embeds: [captainEmbed], allowedMentions: { parse: [] } }).catch(() => {});
+
+  // Pick order: A, B, C, A, B, C, ... until pool is empty
+  const remaining = [...pool];
+  let pickNum = 0;
+
+  while (remaining.length > 0) {
+    const teamIdx = pickNum % 3;
+    const captain = captains[teamIdx];
+    const captainName = captainNames[teamIdx];
+    const totalPicks = pool.length;
+
+    if (remaining.length === 1) {
+      const last = remaining[0];
+      teams[teamIdx].push(last);
+      remaining.length = 0;
+      const lastName = await getName(last);
+      const autoEmbed = new EmbedBuilder()
+        .setTitle('✅ Last Player Assigned')
+        .setColor(0x00c853)
+        .setDescription(`**${lastName}** was auto-assigned to Team ${String.fromCharCode(65 + teamIdx)} (Captain: <@${captain}>)`)
+        .setTimestamp();
+      await ch.send({ embeds: [autoEmbed], allowedMentions: { parse: [] } }).catch(() => {});
+      break;
+    }
+
+    const remainingNames = await Promise.all(remaining.map(getName));
+    const teamsDisplay = teams.map((t, i) =>
+      `**Team ${String.fromCharCode(65 + i)}:** ${t.map(id => `<@${id}>`).join(', ')}`
+    ).join('\n');
+
+    const embed = new EmbedBuilder()
+      .setTitle(`👑 Pick ${pickNum + 1}/${totalPicks} — ${captainName.slice(0, 25)}, pick a teammate`)
+      .setColor(DARK_BLUE)
+      .setDescription(`<@${captain}>, choose a player for **Team ${String.fromCharCode(65 + teamIdx)}**!\n*60 seconds — random if no response.*`)
+      .addFields(
+        { name: '🏟️ Teams So Far', value: teamsDisplay, inline: false },
+        { name: '⏳ Available Players', value: remaining.map(id => `<@${id}>`).join('\n'), inline: false },
+      )
+      .setTimestamp();
+
+    const buttonRows = [];
+    for (let i = 0; i < remaining.length && buttonRows.length < 4; i += 5) {
+      const chunk = remaining.slice(i, i + 5);
+      buttonRows.push(new ActionRowBuilder().addComponents(
+        chunk.map((id, j) =>
+          new ButtonBuilder()
+            .setCustomId(`captainpick|${match.id}|${captain}|${id}`)
+            .setLabel(remainingNames[i + j].slice(0, 20))
+            .setStyle(ButtonStyle.Primary)
+        )
+      ));
+    }
+    buttonRows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`captainpick|${match.id}|${captain}|close`)
+        .setLabel('Skip (Host Only)')
+        .setStyle(ButtonStyle.Danger)
+    ));
+
+    const msg = await ch.send({
+      content: `<@${captain}>`,
+      embeds: [embed],
+      components: buttonRows,
+      allowedMentions: { users: [captain] },
+    }).catch(() => null);
+
+    const draftKey = `captainpick|${match.id}|${captain}`;
+    const picked = await new Promise(resolve => {
+      if (!global._captainDraftResolvers) global._captainDraftResolvers = new Map();
+      const timeout = setTimeout(() => {
+        global._captainDraftResolvers.delete(draftKey);
+        resolve(remaining[Math.floor(Math.random() * remaining.length)]);
+      }, 60000);
+      global._captainDraftResolvers.set(draftKey, (targetId) => {
+        clearTimeout(timeout);
+        global._captainDraftResolvers.delete(draftKey);
+        resolve(targetId === '__skip__'
+          ? remaining[Math.floor(Math.random() * remaining.length)]
+          : targetId);
+      });
+    });
+
+    const pickedIdx = remaining.indexOf(picked);
+    const pickedName = remainingNames[pickedIdx] || `<@${picked}>`;
+    teams[teamIdx].push(picked);
+    remaining.splice(pickedIdx, 1);
+
+    const resultEmbed = new EmbedBuilder()
+      .setTitle('✅ Pick Made!')
+      .setColor(0x00c853)
+      .setDescription(`**Team ${String.fromCharCode(65 + teamIdx)}** (Captain <@${captain}>) picks **${pickedName}**`)
+      .setTimestamp();
+    if (msg) await msg.edit({ embeds: [resultEmbed], components: [] }).catch(() => {});
+    else await ch.send({ embeds: [resultEmbed], allowedMentions: { parse: [] } }).catch(() => {});
+
+    pickNum++;
+  }
+
+  // Final team reveal
+  const finalDisplay = teams.map((t, i) =>
+    `**Team ${String.fromCharCode(65 + i)}:** ${t.map(id => `<@${id}>`).join(' & ')}`
+  ).join('\n');
+  const finalEmbed = new EmbedBuilder()
+    .setTitle('✅ All Teams Formed!')
+    .setColor(0x00c853)
+    .setDescription(finalDisplay)
+    .setTimestamp();
+  await ch.send({ embeds: [finalEmbed], allowedMentions: { parse: [] } }).catch(() => {});
+
+  return teams.length >= 2 ? teams : null;
+}
+
 // ── Bo3 vote ──────────────────────────────────────────────────────────────────
 // Returns a promise that resolves when the 60s vote is done, with the result
 async function postBo3Vote(client, match, { stepLabel = 'Step 1 of 2' } = {}) {
@@ -1399,7 +1590,6 @@ async function startBracket(client, matchId) {
       }
     }
   } else if (match.type === '3v3' && !match.testMatch) {
-    // 3v3: always ELO-balanced random teams — no pick-teammate vote
     // Remove excess players until queue is divisible by 3
     const excess = match.queue.length % 3;
     if (excess !== 0) {
@@ -1411,6 +1601,23 @@ async function startBracket(client, matchId) {
           const ch = await client.channels.fetch(match.privateChannelId).catch(() => null);
           if (ch) await ch.send(`⚠️ <@${sittingOut}> was randomly selected to sit out (player count not divisible by 3) and will not play in this match.`).catch(() => {});
         } catch {}
+      }
+    }
+
+    // Prompt host to choose team formation mode
+    ranTeamVote = true;
+    const captainMode = await postCaptainModePrompt(client, match);
+    if (captainMode === 'captains') {
+      const freshForCaptains = db.get();
+      const matchForCaptains = freshForCaptains.matches?.[matchId];
+      if (matchForCaptains) {
+        const draftedTeams = await postCaptainDraft(client, matchForCaptains);
+        if (draftedTeams) {
+          match.draftedTeams = draftedTeams;
+          const d = db.get();
+          if (d.matches[matchId]) d.matches[matchId].draftedTeams = draftedTeams;
+          db.set(d);
+        }
       }
     }
   }
@@ -1597,7 +1804,7 @@ module.exports = {
   postPredictionPoll, revealPrediction, scheduleMatchReminder,
   matchReminderTimers, dmUser, getMinPlayers,
   startVotesFromSeedPreview, reshuffleSeedPreview,
-  postTeamFormatVote, postTeamDraft,
+  postTeamFormatVote, postTeamDraft, postCaptainModePrompt, postCaptainDraft,
   createMatchVoiceChannel, scheduleScreenshareCheck, SCREENSHARE_ROLE_ID, SCREENSHARE_DQ_MINUTES,
   postSeedPreview, sendMatchAnnouncement, pairIntoTrios, createAnnouncementsChannel,
 };

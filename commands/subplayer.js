@@ -3,6 +3,29 @@ const db = require('../database');
 const { saveToDiscord } = require('../discordBackup');
 const { buildQueueEmbed, buildCheckInEmbed, makeCheckInRows, canManageMatch } = require('./creatematch');
 const { sendStaffAuditLog } = require('../auditLog');
+const { getEloData, getPlayerElo } = require('./elo');
+
+function replaceInBracket(match, oldId, newId) {
+  for (const round of (match.bracket || [])) {
+    for (const bm of round) {
+      if (bm.p1 === oldId) bm.p1 = newId;
+      if (bm.p2 === oldId) bm.p2 = newId;
+      if (bm.winner === oldId) bm.winner = newId;
+      if (bm.teamA) bm.teamA = bm.teamA.map(id => id === oldId ? newId : id);
+      if (bm.teamB) bm.teamB = bm.teamB.map(id => id === oldId ? newId : id);
+    }
+  }
+  if (match.teams) {
+    match.teams = match.teams.map(team => team.map(id => id === oldId ? newId : id));
+  }
+  if (match.eloStart) {
+    if (match.eloStart[oldId] !== undefined) {
+      const eloData = getEloData(db.get());
+      match.eloStart[newId] = getPlayerElo(eloData, newId).elo;
+      delete match.eloStart[oldId];
+    }
+  }
+}
 
 function findMutableMatch(data, interaction, requestedMatchId) {
   if (requestedMatchId) return data.matches?.[requestedMatchId] || null;
@@ -56,6 +79,9 @@ module.exports = {
       delete match.checkIns[oldPlayer.id];
       delete match.checkIns[newPlayer.id];
     }
+    if (match.status === 'bracket') {
+      replaceInBracket(match, oldPlayer.id, newPlayer.id);
+    }
     data.matches[match.id] = match;
     db.set(data);
     await saveToDiscord(interaction.client);
@@ -84,6 +110,16 @@ module.exports = {
           SendMessages: true,
           ReadMessageHistory: true,
         }).catch(() => {});
+        if (match.announcementsChannelId) {
+          try {
+            const announceChannel = await interaction.client.channels.fetch(match.announcementsChannelId);
+            await announceChannel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
+            await announceChannel.permissionOverwrites.edit(newPlayer.id, {
+              ViewChannel: true,
+              ReadMessageHistory: true,
+            }).catch(() => {});
+          } catch {}
+        }
       } else {
         const channel = await interaction.client.channels.fetch(match.channelId);
         const message = await channel.messages.fetch(match.messageId);

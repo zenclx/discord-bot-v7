@@ -22,6 +22,7 @@ const TIERS = [
 
 const STARTING_ELO = 0;
 const LOSS_PENALTY = 25;
+const RUNNER_UP_ELO = 35;
 const DEFAULT_LOG_CHANNEL_ID = '1384695119243907132';
 
 function getWinElo(roundIndex, isFinalRound) {
@@ -148,12 +149,18 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
     let lossResult = null;
     for (const lId of allLosers) {
       const lPlayer = getPlayerElo(eloData, lId);
-      const result = applyEloChange(eloData, lId, -delta.loss);
+      const isRunnerUp = isFinal && allLosers.length > 0;
+      const lossDelta = isRunnerUp ? RUNNER_UP_ELO : -delta.loss;
+      const result = applyEloChange(eloData, lId, lossDelta);
       lPlayer.losses = (lPlayer.losses || 0) + 1;
-      lPlayer.seasonElo = Math.max(0, (lPlayer.seasonElo || 0) - delta.loss);
+      if (isRunnerUp) {
+        lPlayer.seasonElo = Math.max(0, (lPlayer.seasonElo || 0) + RUNNER_UP_ELO);
+      } else {
+        lPlayer.seasonElo = Math.max(0, (lPlayer.seasonElo || 0) - delta.loss);
+      }
       lPlayer.seasonLosses = (lPlayer.seasonLosses || 0) + 1;
       lPlayer.matchHistory = [
-        { matchId: match.id, matchNum: match.matchNum ?? null, type: 'loss', delta: -delta.loss, elo: result.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
+        { matchId: match.id, matchNum: match.matchNum ?? null, type: isRunnerUp ? 'runner_up' : 'loss', delta: lossDelta, elo: result.newElo, round: roundIndex, opponent: winnerId, ts: Date.now() },
         ...(lPlayer.matchHistory || []),
       ].slice(0, 50);
       if (lId === loserId) lossResult = result;
@@ -162,8 +169,9 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
     if (!match.eloEvents) match.eloEvents = [];
     match.eloEvents.push({
       ts: Date.now(), winnerId, loserId: loserId || null, round: roundIndex,
-      gain: gainAmount, loss: delta.loss, baseGain: delta.baseGain,
+      gain: gainAmount, loss: isFinal ? -RUNNER_UP_ELO : delta.loss, baseGain: delta.baseGain,
       eloAdjustment: delta.eloAdjustment, streakBounty: delta.streakBounty,
+      runnerUpGain: isFinal ? RUNNER_UP_ELO : 0,
     });
     if (data.matches?.[match.id]) data.matches[match.id] = match;
 

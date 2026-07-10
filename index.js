@@ -24,7 +24,7 @@ async function refreshEloLeaderboard(channel, eloData) {
 
 require('dotenv').config();
 require('./keepalive');
-const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes, PermissionFlagsBits } = require('discord.js');
 const db = require('./database');
 const { restoreFromDiscord, scheduleDiscordBackup, saveToDiscord } = require('./discordBackup');
 const { buildScoreboardEmbed } = require('./utils');
@@ -484,8 +484,8 @@ client.on('interactionCreate', async interaction => {
     data.matches[matchId] = match;
     db.set(data);
 
-    // Suggest switching to 2v2 when a 1v1 queue reaches 8+ players
-    if (match.type === '1v1' && match.queue.length >= 8) {
+    // Suggest switching to 2v2 when a 1v1 queue reaches exactly 8 players (fire once)
+    if (match.type === '1v1' && match.queue.length === 8) {
       try {
         const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
         const ch = await client.channels.fetch(match.channelId);
@@ -889,12 +889,20 @@ client.on('interactionCreate', async interaction => {
         const eloSummary = buildMatchEloSummary(match, eloData);
 
         const finalAnnounceChannelId = match.announcementsChannelId || match.privateChannelId;
+        const runnerUpDisplay = loseTeam?.length
+          ? loseTeam.map(id => `<@${id}>`).join(' & ')
+          : (loserId ? `<@${loserId}>` : null);
+
         if (finalAnnounceChannelId) {
           try {
             const ch = await client.channels.fetch(finalAnnounceChannelId);
             const finalEmbed = new EmbedBuilder()
               .setTitle('🏆 Tournament Complete!').setColor(0xffd700)
-              .setDescription(`👑 **Champion: ${champDisplay}**${champTag ? ` (${champTag})` : ''}\n\nGG to all players!${match.prize ? `\n\n🎁 **Prize:** ${match.prize}` : ''}`)
+              .setDescription(
+                `👑 **Champion: ${champDisplay}**${champTag ? ` (${champTag})` : ''}`
+                + (runnerUpDisplay ? `\n🥈 **Runner-up: ${runnerUpDisplay}** (+35 ELO)` : '')
+                + `\n\nGG to all players!${match.prize ? `\n\n🎁 **Prize:** ${match.prize}` : ''}`
+              )
               .addFields({ name: 'Match ELO Changes', value: eloSummary.slice(0, 1024), inline: false })
               .setTimestamp();
             await ch.send({ embeds: [finalEmbed] });
@@ -941,6 +949,12 @@ client.on('interactionCreate', async interaction => {
         for (const playerId of (champTeam || [champion])) {
           await dmUser(client, playerId,
             `🏆 **Congratulations!** You won Match #${match.matchNum ?? '?'} (${match.type.toUpperCase()})!${match.prize ? `\n🎁 Prize: ${match.prize}` : ''}`
+          );
+        }
+
+        for (const playerId of (loseTeam || (loserId ? [loserId] : []))) {
+          await dmUser(client, playerId,
+            `🥈 **Runner-up!** You finished 2nd in Match #${match.matchNum ?? '?'} and earned **+35 ELO** for making the final!`
           );
         }
 

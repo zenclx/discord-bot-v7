@@ -156,13 +156,21 @@ function makeBracketAttachment(match) {
 }
 
 function buildSeedPreviewEmbed(match) {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setTitle(`Bracket Seeding Preview - Match #${match.matchNum ?? '?'}`)
     .setColor(DARK_BLUE)
     .setDescription('Review the seeded bracket. Confirm to post the official bracket, or reshuffle before the match begins.')
     .setImage('attachment://bracket.png')
     .setFooter({ text: `Match ID: ${match.id}` })
     .setTimestamp();
+
+  if (['2v2', '3v3'].includes(match.type) && match.teams?.length) {
+    const teamLines = match.teams.map((t, i) =>
+      `**Team ${String.fromCharCode(65 + i)}:** ${t.map(id => `<@${id}>`).join(' & ')}`
+    );
+    embed.addFields({ name: '👥 Teams', value: teamLines.join('\n'), inline: false });
+  }
+  return embed;
 }
 
 function makeSeedPreviewRows(matchId) {
@@ -276,7 +284,8 @@ function getTeamElo(team, eloData) {
 }
 
 function generateTeamBracket(teams, eloData, randomize = false) {
-  const seededTeams = randomize ? shuffleItems(teams) : orderBySeeds([...teams].sort((a, b) => getTeamElo(b, eloData) - getTeamElo(a, eloData)));
+  // Sort by team ELO and pair consecutively so similar-strength teams face each other
+  const seededTeams = randomize ? shuffleItems(teams) : [...teams].sort((a, b) => getTeamElo(b, eloData) - getTeamElo(a, eloData));
   const round = [];
   for (let i = 0; i + 1 < seededTeams.length; i += 2) {
     round.push({

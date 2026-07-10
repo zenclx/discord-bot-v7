@@ -39,12 +39,12 @@ function clamp(value, min, max) {
 
 function getEloAdjustment(winnerElo, loserElo) {
   const diff = (loserElo || 0) - (winnerElo || 0);
-  return clamp(Math.round(diff / 120), -8, 18);
+  return clamp(Math.round(diff / 80), -25, 35);
 }
 
 function getLossAdjustment(winnerElo, loserElo) {
   const diff = (loserElo || 0) - (winnerElo || 0);
-  return clamp(Math.round(diff / 160), -8, 15);
+  return clamp(Math.round(diff / 100), -12, 25);
 }
 
 function getStreakBounty(loserStreak) {

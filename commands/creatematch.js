@@ -1305,13 +1305,10 @@ async function startCheckIn(client, matchId) {
     await saveToDiscord(client);
     return;
   }
-  const announceChannel = await createAnnouncementsChannel(client, match);
-
   match.status = 'checking';
   match.checkIns = {};
   match.checkInEndsAt = Date.now() + CHECKIN_DURATION_MS;
   match.privateChannelId = privateChannel.id;
-  if (announceChannel) match.announcementsChannelId = announceChannel.id;
 
   try {
     const ch = await client.channels.fetch(match.channelId);
@@ -1644,10 +1641,6 @@ async function startBracket(client, matchId) {
   if (!privateChannel) return;
 
   match.privateChannelId = privateChannel.id;
-  if (!match.announcementsChannelId) {
-    const announceChannel = await createAnnouncementsChannel(client, match);
-    if (announceChannel) match.announcementsChannelId = announceChannel.id;
-  }
   data.matches[matchId] = match;
   db.set(data);
   saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket channel failed:', error.message));

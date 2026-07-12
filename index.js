@@ -71,15 +71,18 @@ async function registerCommands() {
   console.log(`Connected guilds: ${connectedGuildIds.join(', ') || 'none'}`);
   console.log(`Registering ${commandsData.length} slash commands: ${localCommands.map(command => command.data.name).join(', ')}`);
 
-  for (const guildId of guildIds) {
-    try {
-      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: commandsData });
-      console.log(`Commands registered for guild ${guildId}.`);
+  const results = await Promise.allSettled(
+    guildIds.map(guildId => rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: commandsData }))
+  );
+  results.forEach((result, i) => {
+    if (result.status === 'fulfilled') {
+      console.log(`Commands registered for guild ${guildIds[i]}.`);
       successfulGuilds++;
-    } catch (e) {
-      console.error(`Guild command registration failed for ${guildId}: ${e.code || ''} ${e.message}`);
+    } else {
+      const e = result.reason;
+      console.error(`Guild command registration failed for ${guildIds[i]}: ${e.code || ''} ${e.message}`);
     }
-  }
+  });
 
   if (successfulGuilds > 0) {
     try {

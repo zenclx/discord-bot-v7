@@ -1520,6 +1520,9 @@ async function startBracket(client, matchId) {
   }
 
   match.status = 'bracket';
+  data.matches[matchId] = match;
+  db.set(data);
+
   const eloData = getEloData(data);
   try {
     if (match.privateChannelId && match.checkInMessageId) {

@@ -23,7 +23,7 @@ const TIERS = [
 const STARTING_ELO = 0;
 const LOSS_PENALTY = 25;
 const RUNNER_UP_ELO = 35;
-const DEFAULT_LOG_CHANNEL_ID = '1525726931008360489';
+const DEFAULT_LOG_CHANNEL_ID = '1384695119243907132';
 
 function getWinElo(roundIndex, isFinalRound) {
   if (isFinalRound) return 75;

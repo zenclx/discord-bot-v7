@@ -3,7 +3,7 @@ const db = require('../database');
 const { getEventLogChannelId } = require('../eventPayouts');
 const { buildBracketImage } = require('../bracketImage');
 
-const DEFAULT_MATCH_LOG_CHANNEL_ID = '1525726931008360489';
+const DEFAULT_MATCH_LOG_CHANNEL_ID = '1384695119243907132';
 
 module.exports = {
   data: new SlashCommandBuilder()

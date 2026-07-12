@@ -476,15 +476,12 @@ const eloResetPlayerCommand = {
       matchHistory: [],
     };
     db.set(data);
-    await updateEloLeaderboard(interaction.client, interaction.guildId);
-    await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Player Reset', [
+    interaction.reply({ content: `Reset <@${target.id}>'s ELO to \`0\` (Tier V).`, flags: 64 }).catch(() => {});
+    updateEloLeaderboard(interaction.client, interaction.guildId).catch(() => {});
+    sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Player Reset', [
       { name: 'Player', value: `<@${target.id}>`, inline: true },
-    ], interaction.user.id);
-    try {
-      const guild = await interaction.client.guilds.fetch(interaction.guildId);
-      await syncRoles(guild, target.id, getTierForElo(STARTING_ELO));
-    } catch {}
-    await interaction.reply({ content: `Reset <@${target.id}>'s ELO to \`0\` (Tier V).`, flags: 64 });
+    ], interaction.user.id).catch(() => {});
+    interaction.client.guilds.fetch(interaction.guildId).then(guild => syncRoles(guild, target.id, getTierForElo(STARTING_ELO))).catch(() => {});
   },
 };
 
@@ -508,11 +505,11 @@ const eloResetAllCommand = {
     const resetCount = Object.keys(eloData).length;
     data.elo = {};
     db.set(data);
-    await updateEloLeaderboard(interaction.client, interaction.guildId);
-    await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Reset All', [
+    interaction.reply({ content: `Reset ELO and win/loss records for **${resetCount}** players.`, flags: 64 }).catch(() => {});
+    updateEloLeaderboard(interaction.client, interaction.guildId).catch(() => {});
+    sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Reset All', [
       { name: 'Players Reset', value: String(resetCount), inline: true },
-    ], interaction.user.id);
-    await interaction.reply({ content: `Reset ELO and win/loss records for **${resetCount}** players.`, flags: 64 });
+    ], interaction.user.id).catch(() => {});
   },
 };
 

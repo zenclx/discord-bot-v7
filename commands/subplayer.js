@@ -84,58 +84,50 @@ module.exports = {
     }
     data.matches[match.id] = match;
     db.set(data);
-    if (match.status === 'bracket') {
-      await postOrUpdateBracket(interaction.client, match).catch(() => {});
-    }
-    await sendStaffAuditLog(interaction.client, interaction.guildId, 'Player Substituted', [
-      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
-      { name: 'Out', value: `<@${oldPlayer.id}>`, inline: true },
-      { name: 'In', value: `<@${newPlayer.id}>`, inline: true },
-    ], interaction.user.id);
 
-    try {
-      if (match.status === 'checking') {
-        const channel = await interaction.client.channels.fetch(match.privateChannelId || match.channelId);
-        await channel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
-        await channel.permissionOverwrites.edit(newPlayer.id, {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true,
-        }).catch(() => {});
-        const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
-        await message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
-      } else if (match.status === 'bracket') {
-        const channel = await interaction.client.channels.fetch(match.privateChannelId);
-        await channel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
-        await channel.permissionOverwrites.edit(newPlayer.id, {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true,
-        }).catch(() => {});
-        if (match.announcementsChannelId) {
-          try {
-            const announceChannel = await interaction.client.channels.fetch(match.announcementsChannelId);
-            await announceChannel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
-            await announceChannel.permissionOverwrites.edit(newPlayer.id, {
-              ViewChannel: true,
-              ReadMessageHistory: true,
-            }).catch(() => {});
-          } catch {}
-        }
-      } else {
-        const channel = await interaction.client.channels.fetch(match.channelId);
-        const message = await channel.messages.fetch(match.messageId);
-        await message.edit({ embeds: [buildQueueEmbed(match)] });
-      }
-    } catch (error) {
-      console.error('subplayer message update failed:', error.message);
-    }
-
-    return interaction.reply({
+    interaction.reply({
       content: match.status === 'bracket'
         ? `Subbed <@${oldPlayer.id}> out for <@${newPlayer.id}> in the match roster/channel. The current bracket was not changed.`
         : `Subbed <@${oldPlayer.id}> out for <@${newPlayer.id}>.`,
       flags: 64,
-    });
+    }).catch(() => {});
+
+    sendStaffAuditLog(interaction.client, interaction.guildId, 'Player Substituted', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'Out', value: `<@${oldPlayer.id}>`, inline: true },
+      { name: 'In', value: `<@${newPlayer.id}>`, inline: true },
+    ], interaction.user.id).catch(() => {});
+
+    (async () => {
+      if (match.status === 'bracket') {
+        await postOrUpdateBracket(interaction.client, match).catch(() => {});
+      }
+      try {
+        if (match.status === 'checking') {
+          const channel = await interaction.client.channels.fetch(match.privateChannelId || match.channelId);
+          await channel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
+          await channel.permissionOverwrites.edit(newPlayer.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
+          const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
+          await message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
+        } else if (match.status === 'bracket') {
+          const channel = await interaction.client.channels.fetch(match.privateChannelId);
+          await channel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
+          await channel.permissionOverwrites.edit(newPlayer.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
+          if (match.announcementsChannelId) {
+            const announceChannel = await interaction.client.channels.fetch(match.announcementsChannelId).catch(() => null);
+            if (announceChannel) {
+              await announceChannel.permissionOverwrites.delete(oldPlayer.id).catch(() => {});
+              await announceChannel.permissionOverwrites.edit(newPlayer.id, { ViewChannel: true, ReadMessageHistory: true }).catch(() => {});
+            }
+          }
+        } else {
+          const channel = await interaction.client.channels.fetch(match.channelId);
+          const message = await channel.messages.fetch(match.messageId);
+          await message.edit({ embeds: [buildQueueEmbed(match)] });
+        }
+      } catch (error) {
+        console.error('subplayer message update failed:', error.message);
+      }
+    })();
   },
 };

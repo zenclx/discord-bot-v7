@@ -96,26 +96,28 @@ module.exports = {
     data.matches[match.id] = match;
     db.set(data);
 
-    await sendStaffAuditLog(interaction.client, interaction.guildId, 'Team Swap', [
+    interaction.reply({
+      content: `✅ Swapped <@${player1.id}> (was Team ${team1Letter}) ↔ <@${player2.id}> (was Team ${team2Letter}).\n**Team ${team1Letter}:** ${match.teams[team1Index].map(id => `<@${id}>`).join(' & ')}\n**Team ${team2Letter}:** ${match.teams[team2Index].map(id => `<@${id}>`).join(' & ')}`,
+      flags: 64,
+    }).catch(() => {});
+
+    sendStaffAuditLog(interaction.client, interaction.guildId, 'Team Swap', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
       { name: 'Swap', value: `<@${player1.id}> (Team ${team1Letter}) ↔ <@${player2.id}> (Team ${team2Letter})`, inline: false },
       { name: `New Team ${team1Letter}`, value: match.teams[team1Index].map(id => `<@${id}>`).join(' & '), inline: true },
       { name: `New Team ${team2Letter}`, value: match.teams[team2Index].map(id => `<@${id}>`).join(' & '), inline: true },
-    ], interaction.user.id);
+    ], interaction.user.id).catch(() => {});
 
-    try {
-      if (match.status === 'bracket') {
-        await postOrUpdateBracket(interaction.client, match);
-      } else if (match.status === 'seeding' && match.seedPreviewMessageId) {
-        await postSeedPreview(interaction.client, match);
+    (async () => {
+      try {
+        if (match.status === 'bracket') {
+          await postOrUpdateBracket(interaction.client, match);
+        } else if (match.status === 'seeding' && match.seedPreviewMessageId) {
+          await postSeedPreview(interaction.client, match);
+        }
+      } catch (e) {
+        console.error('swapplayers embed update failed:', e.message);
       }
-    } catch (e) {
-      console.error('swapplayers embed update failed:', e.message);
-    }
-
-    return interaction.reply({
-      content: `✅ Swapped <@${player1.id}> (was Team ${team1Letter}) ↔ <@${player2.id}> (was Team ${team2Letter}).\n**Team ${team1Letter}:** ${match.teams[team1Index].map(id => `<@${id}>`).join(' & ')}\n**Team ${team2Letter}:** ${match.teams[team2Index].map(id => `<@${id}>`).join(' & ')}`,
-      flags: 64,
-    });
+    })();
   },
 };

@@ -476,7 +476,7 @@ const eloResetPlayerCommand = {
       matchHistory: [],
     };
     db.set(data);
-    await saveToDiscord(interaction.client);
+    saveToDiscord(interaction.client).catch(() => {});
     await updateEloLeaderboard(interaction.client, interaction.guildId);
     await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Player Reset', [
       { name: 'Player', value: `<@${target.id}>`, inline: true },
@@ -509,7 +509,7 @@ const eloResetAllCommand = {
     const resetCount = Object.keys(eloData).length;
     data.elo = {};
     db.set(data);
-    await saveToDiscord(interaction.client);
+    saveToDiscord(interaction.client).catch(() => {});
     await updateEloLeaderboard(interaction.client, interaction.guildId);
     await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Reset All', [
       { name: 'Players Reset', value: String(resetCount), inline: true },
@@ -538,7 +538,7 @@ const eloAdjustCommand = {
       const eloData = getEloData(data);
       result = applyEloChange(eloData, target.id, amount);
       db.set(data);
-      await saveToDiscord(interaction.client);
+      saveToDiscord(interaction.client).catch(() => {});
       await updateEloLeaderboard(interaction.client, interaction.guildId);
       await sendStaffAuditLog(interaction.client, interaction.guildId, 'ELO Adjusted', [
         { name: 'Player', value: `<@${target.id}>`, inline: true },

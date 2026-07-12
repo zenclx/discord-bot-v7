@@ -84,7 +84,7 @@ module.exports = {
     }
     data.matches[match.id] = match;
     db.set(data);
-    await saveToDiscord(interaction.client);
+    saveToDiscord(interaction.client).catch(() => {});
     if (match.status === 'bracket') {
       await postOrUpdateBracket(interaction.client, match).catch(() => {});
     }

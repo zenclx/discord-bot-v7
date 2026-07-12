@@ -18,7 +18,7 @@ module.exports = {
     if (!data.settings[interaction.guildId]) data.settings[interaction.guildId] = {};
     data.settings[interaction.guildId].eventLogChannelId = channel.id;
     db.set(data);
-    await saveToDiscord(interaction.client);
+    saveToDiscord(interaction.client).catch(() => {});
     await interaction.reply({
       content: `✅ Host event logs will now be sent to <#${channel.id}>`,
       flags: 64,

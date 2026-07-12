@@ -95,7 +95,7 @@ module.exports = {
 
     data.matches[match.id] = match;
     db.set(data);
-    await saveToDiscord(interaction.client);
+    saveToDiscord(interaction.client).catch(() => {});
 
     await sendStaffAuditLog(interaction.client, interaction.guildId, 'Team Swap', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },

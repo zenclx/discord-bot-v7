@@ -85,7 +85,7 @@ async function handleTourneyRegistration(interaction) {
   }
 
   db.set(data);
-  await saveToDiscord(interaction.client);
+  saveToDiscord(interaction.client).catch(() => {});
 
   const currentList = reg.registrations
     .map((r, i) => `**${i + 1}.** ${r.username} — ELO: ${r.elo} (<@${r.discordId}>)`)
@@ -133,7 +133,7 @@ const startRegisterCommand = {
     reg.active = true;
     reg.registrations = [];
     db.set(data);
-    await saveToDiscord(interaction.client);
+    saveToDiscord(interaction.client).catch(() => {});
 
     const openEmbed = new EmbedBuilder()
       .setTitle('Tournament Registration Open')
@@ -217,7 +217,7 @@ const endRegisterCommand = {
 
     reg.active = false;
     db.set(data);
-    await saveToDiscord(interaction.client);
+    saveToDiscord(interaction.client).catch(() => {});
 
     const bracket = buildTournamentBracket(registrations);
     const buf = buildBracketImage(bracket, 0, null);

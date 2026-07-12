@@ -44,7 +44,7 @@ module.exports = {
       if (eventLog) settings.eventLogChannelId = eventLog.id;
       if (payoutReport) settings.payoutReportChannelId = payoutReport.id;
       db.set(data);
-      await saveToDiscord(interaction.client);
+      saveToDiscord(interaction.client).catch(() => {});
       return interaction.reply({
         content: `Event log: <#${settings.eventLogChannelId || DEFAULT_EVENT_LOG_CHANNEL_ID}>\nPayout report: <#${settings.payoutReportChannelId || DEFAULT_PAYOUT_REPORT_CHANNEL_ID}>`,
         flags: 64,
@@ -55,7 +55,7 @@ module.exports = {
       const role = interaction.options.getRole('role');
       if (!settings.payoutAdminRoles.includes(role.id)) settings.payoutAdminRoles.push(role.id);
       db.set(data);
-      await saveToDiscord(interaction.client);
+      saveToDiscord(interaction.client).catch(() => {});
       return interaction.reply({ content: `<@&${role.id}> can now manage event payouts.`, flags: 64 });
     }
 
@@ -63,7 +63,7 @@ module.exports = {
       const role = interaction.options.getRole('role');
       settings.payoutAdminRoles = settings.payoutAdminRoles.filter(id => id !== role.id);
       db.set(data);
-      await saveToDiscord(interaction.client);
+      saveToDiscord(interaction.client).catch(() => {});
       return interaction.reply({ content: `<@&${role.id}> can no longer manage event payouts.`, flags: 64 });
     }
 

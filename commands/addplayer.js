@@ -71,7 +71,6 @@ module.exports = {
     }
     data.matches[match.id] = match;
     db.set(data);
-    saveToDiscord(interaction.client).catch(() => {});
     await sendStaffAuditLog(interaction.client, interaction.guildId, match.status === 'checking' ? 'Late Join Added During Check-In' : 'Player Added To Queue', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
       { name: 'Player', value: `<@${player.id}>`, inline: true },

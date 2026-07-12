@@ -165,7 +165,6 @@ module.exports = {
       store.events = store.events.filter(event => event.id !== id);
       if (store.events.length === before) return interaction.editReply('Event record not found.');
       db.set(data);
-      saveToDiscord(interaction.client).catch(() => {});
       return interaction.editReply(`Deleted event record \`${id}\`.`);
     }
 
@@ -176,7 +175,6 @@ module.exports = {
       const store = getGuildPayoutStore(data, interaction.guildId);
       store.hostRanks[user.id] = rank;
       db.set(data);
-      saveToDiscord(interaction.client).catch(() => {});
       return interaction.editReply(`Set <@${user.id}> payout rank to **${COORDINATOR_RANKS[rank].label}**.`);
     }
 

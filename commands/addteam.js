@@ -86,7 +86,6 @@ module.exports = {
 
     data.matches[match.id] = match;
     db.set(data);
-    saveToDiscord(interaction.client).catch(() => {});
 
     const teamDisplay = players.map(p => `<@${p.id}>`).join(' & ');
     await sendStaffAuditLog(interaction.client, interaction.guildId, 'Pre-Formed Team Added', [

@@ -1755,7 +1755,6 @@ module.exports = {
     if (!data.matches) data.matches = {};
     data.matches[matchId] = match;
     db.set(data);
-    saveToDiscord(interaction.client).catch(() => {});
     await sendStaffAuditLog(interaction.client, interaction.guildId, 'Match Queue Created', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
       { name: 'Type', value: match.type.toUpperCase(), inline: true },

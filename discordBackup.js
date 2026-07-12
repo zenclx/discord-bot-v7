@@ -1,5 +1,9 @@
 const { AttachmentBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 const db = require('./database');
+
+const LOCAL_RESTORE_FILE = path.join(__dirname, 'data-restore.json');
 
 const BACKUP_CHANNEL_NAME = 'clan-labs-bot-data';
 const BACKUP_MARKER = 'CLAN_LABS_BOT_DATA_V1';
@@ -69,6 +73,22 @@ async function readBackup(message) {
 }
 
 async function restoreFromDiscord(client) {
+  // Check for a local restore file first
+  if (fs.existsSync(LOCAL_RESTORE_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(LOCAL_RESTORE_FILE, 'utf8'));
+      if (data && typeof data === 'object') {
+        db.replace(data);
+        fs.unlinkSync(LOCAL_RESTORE_FILE);
+        console.log('Restored bot data from local data-restore.json.');
+        scheduleDiscordBackup(client);
+        return true;
+      }
+    } catch (e) {
+      console.error('Local restore failed:', e.message);
+    }
+  }
+
   restoring = true;
   try {
     const channel = await getBackupChannel(client);

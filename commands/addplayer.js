@@ -1,6 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database');
-const { saveToDiscord } = require('../discordBackup');
 const { buildQueueEmbed, canManageMatch, getMinPlayers } = require('./creatematch');
 const { sendStaffAuditLog } = require('../auditLog');
 
@@ -62,8 +61,6 @@ module.exports = {
       return interaction.reply({ content: `<@${player.id}> is already in this queue.`, flags: 64 });
     }
 
-    await interaction.deferReply({ flags: 64 });
-
     match.queue.push(player.id);
     if (match.status === 'checking') {
       if (!match.checkIns) match.checkIns = {};
@@ -71,43 +68,47 @@ module.exports = {
     }
     data.matches[match.id] = match;
     db.set(data);
-    await sendStaffAuditLog(interaction.client, interaction.guildId, match.status === 'checking' ? 'Late Join Added During Check-In' : 'Player Added To Queue', [
-      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
-      { name: 'Player', value: `<@${player.id}>`, inline: true },
-      { name: 'Status', value: match.status, inline: true },
-    ], interaction.user.id);
 
-    try {
-      const { buildCheckInEmbed, makeCheckInRows } = require('./creatematch');
-      if (match.status === 'checking') {
-        const channel = await interaction.client.channels.fetch(match.privateChannelId || match.channelId);
-        await channel.permissionOverwrites.edit(player.id, {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true,
-        }).catch(() => {});
-        const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
-        await message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
-      } else if (match.status === 'bracket') {
-        const channel = await interaction.client.channels.fetch(match.privateChannelId);
-        await channel.permissionOverwrites.edit(player.id, {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true,
-        }).catch(() => {});
-      } else {
-        const channel = await interaction.client.channels.fetch(match.channelId);
-        const message = await channel.messages.fetch(match.messageId);
-        await message.edit({ embeds: [buildQueueEmbed(match)] });
-      }
-    } catch (error) {
-      console.error('addplayer queue message update failed:', error.message);
-    }
-
-    await interaction.editReply({
+    interaction.reply({
       content: match.status === 'bracket'
         ? `Added <@${player.id}> to Match #${match.matchNum ?? '?'} roster/channel. The current bracket was not changed.`
         : `Added <@${player.id}> to Match #${match.matchNum ?? '?'} (${match.queue.length}/${getMinPlayers(match)} players).`,
-    });
+      flags: 64,
+    }).catch(() => {});
+
+    sendStaffAuditLog(interaction.client, interaction.guildId, match.status === 'checking' ? 'Late Join Added During Check-In' : 'Player Added To Queue', [
+      { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
+      { name: 'Player', value: `<@${player.id}>`, inline: true },
+      { name: 'Status', value: match.status, inline: true },
+    ], interaction.user.id).catch(() => {});
+
+    (async () => {
+      try {
+        const { buildCheckInEmbed, makeCheckInRows } = require('./creatematch');
+        if (match.status === 'checking') {
+          const channel = await interaction.client.channels.fetch(match.privateChannelId || match.channelId);
+          await channel.permissionOverwrites.edit(player.id, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true,
+          }).catch(() => {});
+          const message = await channel.messages.fetch(match.checkInMessageId || match.messageId);
+          await message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(match.id) });
+        } else if (match.status === 'bracket') {
+          const channel = await interaction.client.channels.fetch(match.privateChannelId);
+          await channel.permissionOverwrites.edit(player.id, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true,
+          }).catch(() => {});
+        } else {
+          const channel = await interaction.client.channels.fetch(match.channelId);
+          const message = await channel.messages.fetch(match.messageId);
+          await message.edit({ embeds: [buildQueueEmbed(match)] });
+        }
+      } catch (error) {
+        console.error('addplayer queue message update failed:', error.message);
+      }
+    })();
   },
 };

@@ -1,6 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 
-const STAFF_AUDIT_CHANNEL_ID = '1504898537060831392';
+const STAFF_AUDIT_CHANNEL_ID = '1525726931008360489';
 
 async function sendStaffAuditLog(client, guildId, title, fields = [], actorId = null) {
   try {

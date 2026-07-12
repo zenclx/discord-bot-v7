@@ -1641,6 +1641,12 @@ async function startBracket(client, matchId) {
   if (!privateChannel) return;
 
   match.privateChannelId = privateChannel.id;
+
+  if (!match.announcementsChannelId) {
+    const announcementsChannel = await createAnnouncementsChannel(client, match);
+    if (announcementsChannel) match.announcementsChannelId = announcementsChannel.id;
+  }
+
   data.matches[matchId] = match;
   db.set(data);
   saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket channel failed:', error.message));

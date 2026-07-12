@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database');
 const { saveToDiscord } = require('../discordBackup');
-const { buildQueueEmbed, buildCheckInEmbed, makeCheckInRows, canManageMatch } = require('./creatematch');
+const { buildQueueEmbed, buildCheckInEmbed, makeCheckInRows, canManageMatch, postOrUpdateBracket } = require('./creatematch');
 const { sendStaffAuditLog } = require('../auditLog');
 const { getEloData, getPlayerElo } = require('./elo');
 
@@ -85,6 +85,9 @@ module.exports = {
     data.matches[match.id] = match;
     db.set(data);
     await saveToDiscord(interaction.client);
+    if (match.status === 'bracket') {
+      await postOrUpdateBracket(interaction.client, match).catch(() => {});
+    }
     await sendStaffAuditLog(interaction.client, interaction.guildId, 'Player Substituted', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
       { name: 'Out', value: `<@${oldPlayer.id}>`, inline: true },

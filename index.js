@@ -514,13 +514,7 @@ client.on('interactionCreate', async interaction => {
     const matchId = customId.replace('join_queue_', '');
     let data = db.get();
     if (!data.matches) data.matches = {};
-    let match = data.matches[matchId];
-    if (!match) {
-      await restoreFromDiscord(client);
-      data = db.get();
-      if (!data.matches) data.matches = {};
-      match = data.matches[matchId];
-    }
+    const match = data.matches[matchId];
     if (!match || match.status !== 'queuing') {
       console.warn(`Join queue rejected for ${matchId}: ${match ? `status=${match.status}` : 'match missing'}`);
       return interaction.reply({ content: 'Queue is closed.', flags: 64 });

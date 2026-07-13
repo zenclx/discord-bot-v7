@@ -1,13 +1,18 @@
 const { AttachmentBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+const { promisify } = require('util');
+const gzip = promisify(zlib.gzip);
+const gunzip = promisify(zlib.gunzip);
 const db = require('./database');
 
 const LOCAL_RESTORE_FILE = path.join(__dirname, 'data-restore.json');
 
 const BACKUP_CHANNEL_NAME = 'clan-labs-bot-data';
 const BACKUP_MARKER = 'CLAN_LABS_BOT_DATA_V1';
-const BACKUP_FILE = 'data.json';
+const BACKUP_FILE = 'data.json.gz';
+const BACKUP_FILE_LEGACY = 'data.json';
 let backupMessageId = null;
 let backupTimer = null;
 let restoring = false;
@@ -57,18 +62,24 @@ async function findBackupMessage(channel, client) {
   const messages = await channel.messages.fetch({ limit: 25 }).catch(() => null);
   const message = messages?.find(
     msg => msg.author.id === client.user.id
-      && (msg.content.includes(BACKUP_MARKER) || msg.attachments.some(file => file.name === BACKUP_FILE))
+      && (msg.content.includes(BACKUP_MARKER) || msg.attachments.some(file => file.name === BACKUP_FILE || file.name === BACKUP_FILE_LEGACY))
   );
   if (message) backupMessageId = message.id;
   return message || null;
 }
 
 async function readBackup(message) {
-  const attachment = message.attachments.find(file => file.name === BACKUP_FILE);
+  const attachment = message.attachments.find(file => file.name === BACKUP_FILE || file.name === BACKUP_FILE_LEGACY);
   if (!attachment) return null;
 
   const response = await fetch(attachment.url);
   if (!response.ok) throw new Error(`Backup download failed: ${response.status}`);
+
+  if (attachment.name.endsWith('.gz')) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const decompressed = await gunzip(buffer);
+    return JSON.parse(decompressed.toString('utf8'));
+  }
   return response.json();
 }
 
@@ -122,10 +133,8 @@ async function saveToDiscord(client) {
   if (!channel) return false;
 
   const data = db.get();
-  const attachment = new AttachmentBuilder(
-    Buffer.from(JSON.stringify(data, null, 2), 'utf8'),
-    { name: BACKUP_FILE }
-  );
+  const compressed = await gzip(Buffer.from(JSON.stringify(data), 'utf8'));
+  const attachment = new AttachmentBuilder(compressed, { name: BACKUP_FILE });
   const payload = {
     content: `${BACKUP_MARKER}\nUpdated: ${new Date().toISOString()}`,
     files: [attachment],

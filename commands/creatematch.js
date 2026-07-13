@@ -4,7 +4,6 @@ const {
   ChannelType, AttachmentBuilder,
 } = require('discord.js');
 const db = require('../database');
-const { saveToDiscord } = require('../discordBackup');
 const { DARK_BLUE } = require('../utils');
 const { buildBracketImage } = require('../bracketImage');
 const { getEloData, getPlayerElo } = require('./elo');
@@ -595,7 +594,6 @@ async function scheduleScreenshareCheck(client, matchId, vcChannelId) {
 
       data.matches[matchId] = match;
       db.set(data);
-      saveToDiscord(client).catch(() => {});
 
       if (match.privateChannelId) {
         try {
@@ -614,7 +612,6 @@ async function scheduleScreenshareCheck(client, matchId, vcChannelId) {
           const completeData = db.get();
           completeData.matches[matchId] = match;
           db.set(completeData);
-          saveToDiscord(client).catch(() => {});
           if (match.privateChannelId) {
             try {
               const ch = await client.channels.fetch(match.privateChannelId);
@@ -640,7 +637,6 @@ async function scheduleScreenshareCheck(client, matchId, vcChannelId) {
           const advData = db.get();
           advData.matches[matchId] = match;
           db.set(advData);
-          saveToDiscord(client).catch(() => {});
         }
       }
 
@@ -1285,7 +1281,6 @@ async function startCheckIn(client, matchId) {
     } catch {}
     delete data.matches[matchId];
     db.set(data);
-    await saveToDiscord(client);
     return;
   }
 
@@ -1302,7 +1297,6 @@ async function startCheckIn(client, matchId) {
     } catch {}
     delete data.matches[matchId];
     db.set(data);
-    await saveToDiscord(client);
     return;
   }
   match.status = 'checking';
@@ -1337,7 +1331,6 @@ async function startCheckIn(client, matchId) {
 
   data.matches[matchId] = match;
   db.set(data);
-  await saveToDiscord(client);
 
   for (const playerId of match.queue) {
     await dmUser(client, playerId,
@@ -1387,7 +1380,6 @@ async function startVotesFromSeedPreview(client, matchId) {
   match.seedPreviewConfirmed = true;
   data.matches[matchId] = match;
   db.set(data);
-  saveToDiscord(client).catch(error => console.error('saveToDiscord seed confirm failed:', error.message));
 
   try {
     const ch = await client.channels.fetch(match.seedPreviewChannelId);
@@ -1407,7 +1399,6 @@ async function startVotesFromSeedPreview(client, matchId) {
       const vcData = db.get();
       if (vcData.matches[matchId]) vcData.matches[matchId].vcChannelId = vc.id;
       db.set(vcData);
-      saveToDiscord(client).catch(() => {});
       if (freshMatch.privateChannelId) {
         try {
           const guild = await client.guilds.fetch(freshMatch.guildId);
@@ -1457,7 +1448,6 @@ async function reshuffleSeedPreview(client, matchId) {
   match.seedPreviewReshuffles = (match.seedPreviewReshuffles || 0) + 1;
   data.matches[matchId] = match;
   db.set(data);
-  saveToDiscord(client).catch(error => console.error('saveToDiscord seed reshuffle failed:', error.message));
   const msg = await postSeedPreview(client, match);
   if (msg) {
     match.seedPreviewMessageId = msg.id;
@@ -1506,7 +1496,6 @@ async function startBracket(client, matchId) {
     if (match.privateChannelId) scheduleChannelDelete(client, match.privateChannelId, match.vcChannelId || null, match.announcementsChannelId || null);
     delete data.matches[matchId];
     db.set(data);
-    await saveToDiscord(client);
     return;
   }
 
@@ -1636,7 +1625,6 @@ async function startBracket(client, matchId) {
 
   data.matches[matchId] = match;
   db.set(data);
-  saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket initial failed:', error.message));
 
   const privateChannel = match.privateChannelId
     ? await client.channels.fetch(match.privateChannelId).catch(() => null)
@@ -1652,7 +1640,6 @@ async function startBracket(client, matchId) {
 
   data.matches[matchId] = match;
   db.set(data);
-  saveToDiscord(client).catch(error => console.error('saveToDiscord startBracket channel failed:', error.message));
 
   (async () => {
     for (const playerId of match.queue) {
@@ -1695,7 +1682,6 @@ async function startBracket(client, matchId) {
   seededMatch.status = 'seeding';
   seededData.matches[matchId] = seededMatch;
   db.set(seededData);
-  saveToDiscord(client).catch(error => console.error('saveToDiscord seed preview failed:', error.message));
 
   const previewMessage = await postSeedPreview(client, seededMatch, { allowChannelFallback: true });
   if (previewMessage) {

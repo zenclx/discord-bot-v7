@@ -463,8 +463,9 @@ async function createAnnouncementsChannel(client, match) {
           PermissionFlagsBits.ManageMessages,
         ],
       },
+      { id: '1387600871377993820', allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
       ...match.queue.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] })),
-      ...managerRoles.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
+      ...managerRoles.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] })),
     ];
     return await guild.channels.create({
       name: `match-${match.matchNum ?? 0}-results`,

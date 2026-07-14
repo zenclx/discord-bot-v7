@@ -1065,12 +1065,16 @@ async function loginWithBackoff(attempt = 1) {
       new Promise((_, reject) => setTimeout(() => reject(new Error('login timed out')), attemptTimeout)),
     ]);
   } catch (err) {
+    const isInvalidToken = err.message?.toLowerCase().includes('invalid token') || err.code === 'TokenInvalid' || err.httpStatus === 401;
     console.error(`❌ Discord login failed (attempt ${attempt}/${maxAttempts}): ${err.message}`);
+    if (isInvalidToken) {
+      console.error('Token is invalid — update DISCORD_TOKEN in .env and restart. Do NOT regenerate the token unless it was leaked; this is usually caused by running two bot instances at once.');
+      return;
+    }
     if (attempt >= maxAttempts) {
       console.error('Max login attempts reached. Giving up — check token and network.');
       return;
     }
-    // Recreate client so the hung WebSocket is not reused
     client.destroy();
     const delay = Math.min(120000, 10000 * Math.pow(2, attempt - 1));
     console.log(`Retrying in ${Math.round(delay / 1000)}s...`);

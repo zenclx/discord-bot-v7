@@ -1,6 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database');
-const { saveToDiscord } = require('../discordBackup');
 
 function getUserNotificationSettings(data, guildId, userId) {
   if (!data.userSettings) data.userSettings = {};

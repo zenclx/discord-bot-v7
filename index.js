@@ -26,7 +26,7 @@ require('dotenv').config();
 require('./keepalive');
 const { Client, GatewayIntentBits, Collection, REST, Routes, PermissionFlagsBits } = require('discord.js');
 const db = require('./database');
-const { restoreFromDiscord, scheduleDiscordBackup, saveToDiscord } = require('./discordBackup');
+const { restoreFromDiscord, scheduleDiscordBackup } = require('./discordBackup');
 const { buildScoreboardEmbed } = require('./utils');
 const { loadCommands } = require('./commands/registry');
 const { sendStaffAuditLog } = require('./auditLog');
@@ -564,8 +564,6 @@ client.on('interactionCreate', async interaction => {
     const checkedCount = Object.keys(match.checkIns || {}).length;
     if (checkedCount >= getMinPlayers(match) && checkedCount >= (match.queue || []).length) {
       await startBracket(client, matchId);
-    } else {
-      await saveToDiscord(client);
     }
     return;
   }
@@ -628,7 +626,6 @@ client.on('interactionCreate', async interaction => {
     }
     delete data.matches[matchId];
     db.set(data);
-    await saveToDiscord(client);
     await sendStaffAuditLog(client, match.guildId, 'Queue Cancelled', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
       { name: 'Players', value: (match.queue || []).map(id => `<@${id}>`).join('\n') || 'None', inline: false },

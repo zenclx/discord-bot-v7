@@ -1,6 +1,5 @@
 const { AttachmentBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('./database');
-const { saveToDiscord } = require('./discordBackup');
 const { getRobloxLinks, getGroupMembership, getMembershipRoles, lookupRobloxUser, STAFF_ROLE_IDS } = require('./robloxSync');
 
 const DEFAULT_EVENT_LOG_CHANNEL_ID = process.env.EVENT_LOG_CHANNEL_ID || '1511889756773027862';
@@ -144,7 +143,6 @@ async function resolveRobloxLink(client, guildId, discordUserId, robloxInput) {
     linkedAt: Date.now(),
   };
   db.set(data);
-  if (client) await saveToDiscord(client).catch(error => console.error('saveToDiscord setroblox failed:', error.message));
   return links[discordUserId];
 }
 
@@ -171,7 +169,6 @@ async function saveEventRecord(client, guildId, event) {
   if (existingIndex >= 0) store.events[existingIndex] = record;
   else store.events.unshift(record);
   db.set(data);
-  if (client) await saveToDiscord(client).catch(error => console.error('saveToDiscord event record failed:', error.message));
   return record;
 }
 
@@ -237,7 +234,6 @@ async function recordHostedEventFromMatch(client, match) {
     if (changed) {
       existing.updatedAt = Date.now();
       db.set(data);
-      saveToDiscord(client).catch(error => console.error('saveToDiscord event repair failed:', error.message));
     }
     await sendEventLog(client, match.guildId, existing);
     return existing;
@@ -413,7 +409,6 @@ async function syncCoordinatorRanks(client, guildId, source = 'both') {
   }
 
   db.set(data);
-  await saveToDiscord(client).catch(error => warnings.push(`Discord backup failed: ${error.message}`));
 
   return {
     synced,

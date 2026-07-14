@@ -1,6 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database');
-const { saveToDiscord } = require('../discordBackup');
 const { buildQueueEmbed, buildCheckInEmbed, makeCheckInRows, canManageMatch, postOrUpdateBracket } = require('./creatematch');
 const { sendStaffAuditLog } = require('../auditLog');
 const { getEloData, getPlayerElo } = require('./elo');

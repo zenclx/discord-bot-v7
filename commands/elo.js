@@ -1,7 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 const db = require('../database');
 const { sendStaffAuditLog } = require('../auditLog');
-const { saveToDiscord } = require('../discordBackup');
 const { syncRobloxTierForDiscordUser } = require('../robloxSync');
 
 const TIER_ROLES = {
@@ -177,7 +176,6 @@ async function applyMatchElo(client, match, winnerId, loserId, roundIndex, isFin
 
     db.set(data);
     (async () => {
-      await saveToDiscord(client);
       await updateEloLeaderboard(client, match.guildId);
       try {
         const guild = await client.guilds.fetch(match.guildId);
@@ -224,7 +222,6 @@ async function applyMatchStreaks(client, match, championId) {
     }
 
     db.set(data);
-    await saveToDiscord(client);
     await updateEloLeaderboard(client, match.guildId);
 
     const champion = getPlayerElo(getEloData(db.get()), championId);
@@ -234,7 +231,6 @@ async function applyMatchStreaks(client, match, championId) {
       const streak = freshChampion.pendingStreakCallout;
       delete freshChampion.pendingStreakCallout;
       db.set(fresh);
-      await saveToDiscord(client);
 
       const logChannelId = fresh.settings?.[match.guildId]?.logChannelId || DEFAULT_LOG_CHANNEL_ID;
       const channel = await client.channels.fetch(logChannelId).catch(() => null);

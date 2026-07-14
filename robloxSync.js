@@ -1,5 +1,4 @@
 const db = require('./database');
-const { saveToDiscord } = require('./discordBackup');
 const { sendStaffAuditLog } = require('./auditLog');
 
 const ROBLOX_GROUP_ID = '301637944';
@@ -255,7 +254,6 @@ async function syncRobloxTierForDiscordUser(client, guildId, discordUserId, tier
     lastSyncedAt: Date.now(),
   };
   db.set(freshData);
-  await saveToDiscord(client);
 
   await sendStaffAuditLog(client, guildId, 'Roblox Tier Synced', [
     { name: 'Discord User', value: `<@${discordUserId}>`, inline: true },
@@ -326,7 +324,6 @@ async function syncRobloxUpdateForDiscordUser(client, guildId, discordUserId, fa
     lastSyncedAt: Date.now(),
   };
   db.set(freshData);
-  await saveToDiscord(client);
 
   await sendStaffAuditLog(client, guildId, 'Roblox Update Synced', [
     { name: 'Discord User', value: `<@${discordUserId}>`, inline: true },
@@ -419,7 +416,6 @@ async function linkRobloxAccount(client, guildId, discordUserId, robloxUser) {
     linkedAt: Date.now(),
   };
   db.set(data);
-  await saveToDiscord(client);
   return links[discordUserId];
 }
 

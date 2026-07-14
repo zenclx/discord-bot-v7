@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const db = require('../database');
-const { saveToDiscord } = require('../discordBackup');
 const {
   COORDINATOR_RANKS,
   getGuildPayoutStore,

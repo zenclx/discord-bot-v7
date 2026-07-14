@@ -4,7 +4,6 @@ const {
   ActionRowBuilder, PermissionFlagsBits,
 } = require('discord.js');
 const db = require('../database');
-const { saveToDiscord } = require('../discordBackup');
 const { buildBracketImage } = require('../bracketImage');
 
 const TOURNEY_LOG_CHANNEL_ID = '1520930139825901822';

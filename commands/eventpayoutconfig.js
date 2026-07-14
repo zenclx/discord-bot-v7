@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const db = require('../database');
-const { saveToDiscord } = require('../discordBackup');
 const { DEFAULT_EVENT_LOG_CHANNEL_ID, DEFAULT_PAYOUT_REPORT_CHANNEL_ID, getGuildSettings, sendEventLog } = require('../eventPayouts');
 
 module.exports = {

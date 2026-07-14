@@ -131,12 +131,96 @@ function restoreScheduledMatches() {
   } catch {}
 }
 
+async function restoreActiveMatches(client) {
+  const {
+    timers, startBracket, buildQueueEmbed, buildCheckInEmbed, makeCheckInRows,
+  } = require('./commands/creatematch');
+  const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
+  const data = db.get();
+  if (!data.matches) return;
+
+  let restored = 0;
+  for (const [matchId, match] of Object.entries(data.matches)) {
+    if (match.status === 'queuing') {
+      const remaining = (match.endsAt || 0) - Date.now();
+      if (remaining <= 0) {
+        startBracket(client, matchId).catch(e => console.error(`restoreActiveMatches queuing startBracket ${matchId}:`, e.message));
+      } else {
+        const joinRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`join_queue_${matchId}`).setLabel('Join Queue').setStyle(ButtonStyle.Success).setEmoji('⚔️'),
+          new ButtonBuilder().setCustomId(`leave_queue_${matchId}`).setLabel('Leave Queue').setStyle(ButtonStyle.Secondary).setEmoji('🚪'),
+          new ButtonBuilder().setCustomId(`addminute_${matchId}`).setLabel('+1 Minute').setStyle(ButtonStyle.Secondary).setEmoji('⏱️'),
+          new ButtonBuilder().setCustomId(`forcestart_${matchId}`).setLabel('Force Start').setStyle(ButtonStyle.Danger).setEmoji('🚀'),
+        );
+        const cancelRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`cancel_queue_${matchId}`).setLabel('Cancel Queue').setStyle(ButtonStyle.Danger),
+        );
+        const intervalId = setInterval(async () => {
+          const fresh = db.get();
+          const m = fresh.matches?.[matchId];
+          if (!m || m.status !== 'queuing') { clearInterval(intervalId); return; }
+          try {
+            const ch = await client.channels.fetch(m.channelId);
+            const ms = await ch.messages.fetch(m.messageId);
+            await ms.edit({ embeds: [buildQueueEmbed(m)], components: [joinRow, cancelRow] });
+          } catch {}
+        }, 30000);
+        const timer = setTimeout(async () => {
+          clearInterval(intervalId);
+          await startBracket(client, matchId);
+        }, remaining);
+        timers.set(matchId, { timer, interval: intervalId });
+        restored++;
+      }
+    } else if (match.status === 'checking') {
+      const remaining = (match.checkInEndsAt || 0) - Date.now();
+      if (remaining <= 0) {
+        startBracket(client, matchId).catch(e => console.error(`restoreActiveMatches checking startBracket ${matchId}:`, e.message));
+      } else {
+        let reminderCount = 0;
+        const interval = setInterval(async () => {
+          const fresh = db.get();
+          const current = fresh.matches?.[matchId];
+          if (!current || current.status !== 'checking') { clearInterval(interval); return; }
+          reminderCount++;
+          const missing = (current.queue || []).filter(id => !current.checkIns?.[id]);
+          try {
+            const ch = await client.channels.fetch(current.privateChannelId || current.channelId);
+            if (missing.length) {
+              await ch.send({
+                content: `${missing.map(id => `<@${id}>`).join(' ')} please check in for Match #${current.matchNum ?? '?'}.`,
+                allowedMentions: { users: missing },
+              });
+            }
+            const msg = await ch.messages.fetch(current.checkInMessageId || current.messageId);
+            await msg.edit({ content: null, embeds: [buildCheckInEmbed(current)], components: makeCheckInRows(matchId) });
+          } catch {}
+          if (reminderCount >= 5) {
+            clearInterval(interval);
+            await startBracket(client, matchId);
+          }
+        }, 60 * 1000);
+        const checkinTimer = setTimeout(async () => {
+          clearInterval(interval);
+          await startBracket(client, matchId);
+        }, remaining);
+        timers.set(matchId, { ...(timers.get(matchId) || {}), checkinTimer, checkinInterval: interval });
+        restored++;
+      }
+    }
+  }
+
+  if (restored > 0) console.log(`Restored timers for ${restored} active match(es).`);
+}
+
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   await restoreFromDiscord(client);
   db.onSet(() => scheduleDiscordBackup(client));
   await registerCommands();
   restoreScheduledMatches();
+  await restoreActiveMatches(client);
   scheduleMonthlyEventPayouts(client, () => client.guilds.cache.map(guild => guild.id));
 });
 
@@ -1037,6 +1121,27 @@ client.on('interactionCreate', async interaction => {
     await postOrUpdateBracket(client, match);
     return interaction.editReply({ content: `Winner recorded for Match ${matchIndex + 1}. Select remaining winners above.` });
   }
+
+  // ── Mark fine as paid (button from fines board) ───────────────────────────
+  if (customId.startsWith('mark_fine_paid_')) {
+    if (!canManageMatch(interaction.member)) {
+      return interaction.reply({ content: '❌ Staff only.', flags: 64 });
+    }
+    const fineId = customId.replace('mark_fine_paid_', '');
+    const fineData = db.get();
+    const suspensions = fineData.suspensions || [];
+    const fine = suspensions.find(f => f.fineId === fineId);
+    if (!fine) return interaction.reply({ content: `❌ Fine \`${fineId}\` not found.`, flags: 64 });
+    if (fine.paid) return interaction.reply({ content: `❌ Fine \`${fineId}\` is already marked as paid.`, flags: 64 });
+    fine.paid = true;
+    fine.paidAt = Date.now();
+    fine.markedPaidBy = interaction.user.id;
+    db.set(fineData);
+    const { updateFinesBoard } = require('./commands/suspend');
+    await updateFinesBoard(client);
+    return interaction.reply({ content: `✅ Fine \`${fineId}\` marked as paid.`, flags: 64 });
+  }
+
   } catch (e) {
     console.error('Button interaction failed:', e);
     const message = { content: 'Could not complete that button action. Please try again.', flags: 64 };

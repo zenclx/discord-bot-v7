@@ -100,6 +100,19 @@ async function restoreFromDiscord(client) {
     }
   }
 
+  // If local data already has content (persistent filesystem), skip Discord restore
+  // to avoid overwriting ELO changes saved since the last backup.
+  // On ephemeral hosts (Render), data.json is empty on restart so this is skipped.
+  const existing = db.get();
+  const hasLocalData = Object.keys(existing.elo || {}).length > 0
+    || Object.keys(existing.matches || {}).length > 0
+    || Object.keys(existing.settings || {}).length > 0;
+  if (hasLocalData) {
+    console.log('Local data.json has existing data — skipping Discord restore.');
+    scheduleDiscordBackup(client);
+    return true;
+  }
+
   restoring = true;
   try {
     const channel = await getBackupChannel(client);

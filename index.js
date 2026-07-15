@@ -847,7 +847,7 @@ client.on('interactionCreate', async interaction => {
     if (!snapshot) return interaction.reply({ content: 'No undo snapshot found for this match.', flags: 64 });
     if (!data.matches) data.matches = {};
     data.matches[matchId] = snapshot.match;
-    data.elo = snapshot.elo || {};
+    if (snapshot.elo && Object.keys(snapshot.elo).length > 0) data.elo = snapshot.elo;
     db.set(data);
     await postOrUpdateBracket(client, snapshot.match);
     const { updateEloLeaderboard } = require('./commands/elo');

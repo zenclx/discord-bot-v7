@@ -1,4 +1,5 @@
 .env
 data.json
+elo-backup.json
 node_modules/
 *.log

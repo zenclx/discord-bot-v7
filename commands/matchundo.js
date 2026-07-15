@@ -30,7 +30,7 @@ module.exports = {
     if (!snapshot) return interaction.reply({ content: 'No undo snapshot found for this match.', flags: 64 });
 
     data.matches[match.id] = snapshot.match;
-    data.elo = snapshot.elo || {};
+    if (snapshot.elo && Object.keys(snapshot.elo).length > 0) data.elo = snapshot.elo;
     db.set(data);
     await postOrUpdateBracket(interaction.client, snapshot.match);
     await updateEloLeaderboard(interaction.client, snapshot.match.guildId);

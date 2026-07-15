@@ -3,6 +3,7 @@ const path = require('path');
 
 const FALLBACK_DB_PATH = path.join(__dirname, 'data.json');
 const PRIMARY_DB_PATH = process.env.DATA_PATH || FALLBACK_DB_PATH;
+const ELO_BACKUP_PATH = path.join(__dirname, 'elo-backup.json');
 let activeDbPath = PRIMARY_DB_PATH;
 let memoryData = null;
 const listeners = new Set();
@@ -25,18 +26,34 @@ function switchToFallback(error) {
   activeDbPath = FALLBACK_DB_PATH;
 }
 
+function restoreEloFromBackup(data) {
+  try {
+    if (!fs.existsSync(ELO_BACKUP_PATH)) return data;
+    const backup = JSON.parse(fs.readFileSync(ELO_BACKUP_PATH, 'utf8'));
+    if (!backup?.elo || Object.keys(backup.elo).length === 0) return data;
+    const currentCount = Object.keys(data.elo || {}).length;
+    const backupCount = Object.keys(backup.elo).length;
+    if (backupCount > currentCount) {
+      console.log(`ELO backup has ${backupCount} players vs ${currentCount} in data.json — restoring from elo-backup.json.`);
+      data.elo = backup.elo;
+    }
+  } catch {}
+  return data;
+}
+
 function load() {
   if (memoryData) return clone(memoryData);
 
   try {
     if (!fs.existsSync(activeDbPath)) {
-      const data = defaults();
+      const data = restoreEloFromBackup(defaults());
       ensureWritable(activeDbPath);
       atomicWrite(activeDbPath, data);
       memoryData = data;
       return clone(memoryData);
     }
-    memoryData = JSON.parse(fs.readFileSync(activeDbPath, 'utf8'));
+    const data = JSON.parse(fs.readFileSync(activeDbPath, 'utf8'));
+    memoryData = restoreEloFromBackup(data);
     return clone(memoryData);
   } catch (e) {
     if (e.code === 'EACCES' || e.code === 'EROFS' || e.code === 'ENOENT') {
@@ -68,6 +85,13 @@ function save(data, { notify = true } = {}) {
       return;
     }
     throw e;
+  }
+
+  // Keep a dedicated ELO backup so it can be recovered if data.json is lost or corrupted
+  if (memoryData.elo && Object.keys(memoryData.elo).length > 0) {
+    try {
+      atomicWrite(ELO_BACKUP_PATH, { elo: memoryData.elo, savedAt: Date.now() });
+    } catch {}
   }
 
   if (notify) {

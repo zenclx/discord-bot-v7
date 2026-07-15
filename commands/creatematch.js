@@ -429,17 +429,27 @@ async function createMatchChannel(client, match) {
 }
 
 async function scheduleChannelDelete(client, channelId, vcChannelId = null, announceChannelId = null) {
+  const deleteChannel = async (id, label) => {
+    try {
+      const ch = await client.channels.fetch(id).catch(() => null);
+      if (!ch) return;
+      await ch.delete('Match complete');
+    } catch (e) {
+      console.error(`scheduleChannelDelete failed to delete ${label} channel ${id}: ${e.message}`);
+    }
+  };
+
   setTimeout(async () => {
-    try { await (await client.channels.fetch(channelId)).send('⚠️ **This channel will be deleted in 10 seconds.**'); } catch {}
+    try {
+      const ch = await client.channels.fetch(channelId).catch(() => null);
+      if (ch) await ch.send('⚠️ **This channel will be deleted in 10 seconds.**');
+    } catch {}
   }, 50000);
+
   setTimeout(async () => {
-    try { await (await client.channels.fetch(channelId)).delete('Match complete'); } catch {}
-    if (vcChannelId) {
-      try { await (await client.channels.fetch(vcChannelId)).delete('Match complete'); } catch {}
-    }
-    if (announceChannelId) {
-      try { await (await client.channels.fetch(announceChannelId)).delete('Match complete'); } catch {}
-    }
+    await deleteChannel(channelId, 'private');
+    if (vcChannelId) await deleteChannel(vcChannelId, 'voice');
+    if (announceChannelId) await deleteChannel(announceChannelId, 'announcements');
   }, 60000);
 }
 

@@ -79,7 +79,21 @@ const PREFIX_PRIORITY = [
 ];
 
 function getApiKey() {
-  return process.env.ROBLOX_OPEN_CLOUD_API_KEY || process.env.ROBLOX_API_KEY || '';
+  const raw = process.env.ROBLOX_OPEN_CLOUD_API_KEY || process.env.ROBLOX_API_KEY || '';
+  const key = raw.trim().replace(/^["']|["']$/g, '').trim();
+  return key;
+}
+
+function logApiKeyStatus() {
+  const raw = process.env.ROBLOX_OPEN_CLOUD_API_KEY || process.env.ROBLOX_API_KEY || '';
+  const key = getApiKey();
+  if (!key) {
+    console.warn('[Roblox] No API key found in environment variables.');
+  } else if (raw.length !== key.length) {
+    console.warn(`[Roblox] API key had extra whitespace/quotes stripped (raw length ${raw.length} → clean length ${key.length}). Update your .env to remove them.`);
+  } else {
+    console.log(`[Roblox] API key loaded (length: ${key.length}).`);
+  }
 }
 
 function getRobloxLinks(data, guildId) {
@@ -437,4 +451,5 @@ module.exports = {
   syncRobloxTierForDiscordUser,
   syncRobloxUpdateForDiscordUser,
   addRobloxRolesForDiscordUser,
+  logApiKeyStatus,
 };

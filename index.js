@@ -610,6 +610,16 @@ client.on('interactionCreate', async interaction => {
     if (interaction.member?.roles?.cache?.has('1388010357586661417')) {
       return interaction.reply({ content: '❌ You are not eligible to join match queues.', flags: 64 });
     }
+    // Require VP bot verification
+    const VERIFIED_ROLE_ID = '1333145733955850348';
+    if (!interaction.member?.roles?.cache?.has(VERIFIED_ROLE_ID)) {
+      return interaction.reply({ content: '❌ You must be verified to join match queues. Verify with the VP bot first.', flags: 64 });
+    }
+    // Require linked Roblox account (confirms group membership from verification)
+    const robloxLinks = data.robloxLinks?.[interaction.guildId] || {};
+    if (!robloxLinks[interaction.user.id]?.robloxUserId) {
+      return interaction.reply({ content: '❌ You must link your Roblox account before joining. Use `/robloxverify`.', flags: 64 });
+    }
     if (match.queue.includes(interaction.user.id)) return interaction.reply({ content: '⚠️ You are already in the queue!', flags: 64 });
     match.queue.push(interaction.user.id);
     data.matches[matchId] = match;
@@ -1151,6 +1161,16 @@ client.on('interactionCreate', async interaction => {
     if (interaction.deferred && !interaction.replied) await interaction.editReply({ content: message.content }).catch(() => {});
     else if (interaction.replied) await interaction.followUp(message).catch(() => {});
     else await interaction.reply(message).catch(() => {});
+  }
+});
+
+// ── Auto-sync Tier V to Roblox group when Discord role is assigned ────────────
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+  const TIER_V_ROLE_ID = '1394142206218080265';
+  if (!oldMember.roles.cache.has(TIER_V_ROLE_ID) && newMember.roles.cache.has(TIER_V_ROLE_ID)) {
+    const { syncRobloxTierForDiscordUser } = require('./robloxSync');
+    syncRobloxTierForDiscordUser(newMember.client, newMember.guild.id, newMember.id, 'V')
+      .catch(e => console.error(`Auto Tier V Roblox sync failed for ${newMember.id}: ${e.message}`));
   }
 });
 

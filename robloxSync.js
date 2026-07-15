@@ -96,6 +96,35 @@ function logApiKeyStatus() {
   }
 }
 
+async function testRobloxApiKey() {
+  const key = getApiKey();
+  if (!key) return;
+  try {
+    // Try reading group info — requires Groups API read permission on the key
+    const res = await fetch(`https://apis.roblox.com/cloud/v2/groups/${ROBLOX_GROUP_ID}`, {
+      headers: { 'x-api-key': key, 'Content-Type': 'application/json' },
+    });
+    const body = await res.text();
+    if (res.status === 200) {
+      console.log(`[Roblox] API key OK — group ${ROBLOX_GROUP_ID} accessible.`);
+    } else if (res.status === 401) {
+      console.error(`[Roblox] ❌ API key REJECTED (401). Fix your key at create.roblox.com/credentials:\n` +
+        `  1. Add "Groups" under API System\n` +
+        `  2. Set Read + Write permissions\n` +
+        `  3. Add group ID ${ROBLOX_GROUP_ID} as the allowed resource\n` +
+        `  4. Set "Accepted IP Addresses" to 0.0.0.0/0\n` +
+        `  5. Key must be created by the group OWNER account\n` +
+        `  Full Roblox response: ${body}`);
+    } else if (res.status === 403) {
+      console.error(`[Roblox] ❌ API key exists but lacks permission (403). Add Write permission to the Groups API on your key at create.roblox.com/credentials.\n  Full response: ${body}`);
+    } else {
+      console.warn(`[Roblox] API key test returned unexpected status ${res.status}: ${body}`);
+    }
+  } catch (e) {
+    console.error(`[Roblox] API key test failed (network error): ${e.message}`);
+  }
+}
+
 function getRobloxLinks(data, guildId) {
   if (!data.robloxLinks) data.robloxLinks = {};
   if (!data.robloxLinks[guildId]) data.robloxLinks[guildId] = {};
@@ -452,4 +481,5 @@ module.exports = {
   syncRobloxUpdateForDiscordUser,
   addRobloxRolesForDiscordUser,
   logApiKeyStatus,
+  testRobloxApiKey,
 };

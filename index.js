@@ -216,8 +216,9 @@ async function restoreActiveMatches(client) {
 
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
-  const { logApiKeyStatus } = require('./robloxSync');
+  const { logApiKeyStatus, testRobloxApiKey } = require('./robloxSync');
   logApiKeyStatus();
+  testRobloxApiKey().catch(() => {});
   await restoreFromDiscord(client);
   db.onSet(() => scheduleDiscordBackup(client));
   await registerCommands();

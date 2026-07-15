@@ -667,11 +667,11 @@ client.on('interactionCreate', async interaction => {
     const match = data.matches?.[matchId];
     if (!match || match.status !== 'checking') return interaction.reply({ content: 'Check-in is not open.', flags: 64 });
     if (!match.queue.includes(interaction.user.id)) return interaction.reply({ content: 'You are not in this match.', flags: 64 });
+    await interaction.deferUpdate();
     if (!match.checkIns) match.checkIns = {};
     match.checkIns[interaction.user.id] = Date.now();
     data.matches[matchId] = match;
     db.set(data);
-    await interaction.deferUpdate();
     await interaction.message.edit({ content: null, embeds: [buildCheckInEmbed(match)], components: makeCheckInRows(matchId) }).catch(() => {});
     const checkedCount = Object.keys(match.checkIns || {}).length;
     if (checkedCount >= getMinPlayers(match) && checkedCount >= (match.queue || []).length) {
@@ -766,11 +766,11 @@ client.on('interactionCreate', async interaction => {
         clearInterval(t.checkinInterval);
         timers.delete(matchId);
       }
+      await interaction.deferUpdate();
       await sendStaffAuditLog(client, match.guildId, 'Match Force Started From Check-In', [
         { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
         { name: 'Checked In', value: Object.keys(match.checkIns || {}).map(id => `<@${id}>`).join('\n') || 'None', inline: false },
       ], interaction.user.id);
-      await interaction.deferUpdate();
       await startBracket(client, matchId);
       return;
     }
@@ -785,11 +785,11 @@ client.on('interactionCreate', async interaction => {
       clearInterval(t.checkinInterval);
       timers.delete(matchId);
     }
+    await interaction.deferUpdate();
     await sendStaffAuditLog(client, match.guildId, 'Match Force Started', [
       { name: 'Match', value: `#${match.matchNum ?? '?'}\n\`${match.id}\``, inline: true },
       { name: 'Players', value: (match.queue || []).map(id => `<@${id}>`).join('\n') || 'None', inline: false },
     ], interaction.user.id);
-    await interaction.deferUpdate();
     await startBracket(client, matchId);
     return;
   }

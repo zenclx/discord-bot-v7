@@ -824,7 +824,7 @@ async function postTeamFormatVote(client, match) {
       const msg = await ch.send({ embeds: [embed], components: [row] });
       const data = db.get();
       if (!data.teamfmtvotes) data.teamfmtvotes = {};
-      data.teamfmtvotes[voteId] = { matchId: match.id, votes: {}, messageId: msg.id, channelId: match.privateChannelId, closed: false };
+      data.teamfmtvotes[voteId] = { matchId: match.id, votes: {}, messageId: msg.id, channelId: match.privateChannelId, closed: false, players: [...match.queue] };
       db.set(data);
 
       const finish = async () => {
@@ -849,6 +849,18 @@ async function postTeamFormatVote(client, match) {
 
       if (!global._teamfmtFinishers) global._teamfmtFinishers = new Map();
       global._teamfmtFinishers.set(voteId, finish);
+
+      setTimeout(async () => {
+        const fresh = db.get();
+        const vote = fresh.teamfmtvotes?.[voteId];
+        if (!vote || vote.closed) return;
+        const nonVoters = (vote.players || []).filter(id => !vote.votes[id]);
+        if (nonVoters.length === 0) return;
+        try {
+          await ch.send({ content: `⏰ **30 seconds left to vote!** ${nonVoters.map(id => `<@${id}>`).join(' ')} — please vote above!`, allowedMentions: { users: nonVoters } });
+        } catch {}
+      }, 30000);
+
       setTimeout(finish, 60000);
     } catch (e) { console.error('postTeamFormatVote error:', e.message); resolve('random'); }
   });
@@ -1182,13 +1194,13 @@ async function postBo3Vote(client, match, { stepLabel = 'Step 1 of 2' } = {}) {
 
       const data = db.get();
       if (!data.bo3votes) data.bo3votes = {};
-      data.bo3votes[voteId] = { matchId: match.id, votes: {}, messageId: msg.id, channelId: match.privateChannelId, closed: false };
+      data.bo3votes[voteId] = { matchId: match.id, votes: {}, messageId: msg.id, channelId: match.privateChannelId, closed: false, players: [...match.queue] };
       db.set(data);
 
       const finish = async () => {
         const fresh = db.get();
         const vote = fresh.bo3votes?.[voteId];
-        if (!vote) return resolve('none');
+        if (!vote || vote.closed) return resolve('none');
         vote.closed = true;
         const tally = { all: 0, finals: 0, none: 0 };
         for (const v of Object.values(vote.votes)) tally[v] = (tally[v] || 0) + 1;
@@ -1208,6 +1220,17 @@ async function postBo3Vote(client, match, { stepLabel = 'Step 1 of 2' } = {}) {
       // Store finish fn so close button can call it
       if (!global._bo3Finishers) global._bo3Finishers = new Map();
       global._bo3Finishers.set(voteId, finish);
+
+      setTimeout(async () => {
+        const fresh = db.get();
+        const vote = fresh.bo3votes?.[voteId];
+        if (!vote || vote.closed) return;
+        const nonVoters = (vote.players || []).filter(id => !vote.votes[id]);
+        if (nonVoters.length === 0) return;
+        try {
+          await ch.send({ content: `⏰ **30 seconds left to vote!** ${nonVoters.map(id => `<@${id}>`).join(' ')} — please vote above!`, allowedMentions: { users: nonVoters } });
+        } catch {}
+      }, 30000);
 
       setTimeout(finish, 60000);
     } catch (e) { console.error('postBo3Vote error:', e.message); resolve('none'); }
@@ -1242,13 +1265,13 @@ async function postRegionVote(client, match, { stepLabel = 'Step 2 of 2' } = {})
 
       const data = db.get();
       if (!data.regionvotes) data.regionvotes = {};
-      data.regionvotes[voteId] = { matchId: match.id, votes: {}, messageId: msg.id, channelId: match.privateChannelId, closed: false };
+      data.regionvotes[voteId] = { matchId: match.id, votes: {}, messageId: msg.id, channelId: match.privateChannelId, closed: false, players: [...match.queue] };
       db.set(data);
 
       const finish = async () => {
         const fresh = db.get();
         const vote = fresh.regionvotes?.[voteId];
-        if (!vote) return resolve('NA');
+        if (!vote || vote.closed) return resolve('NA');
         vote.closed = true;
         const tally = { NA: 0, AEST: 0, GMT: 0 };
         for (const v of Object.values(vote.votes)) tally[v] = (tally[v] || 0) + 1;
@@ -1267,6 +1290,17 @@ async function postRegionVote(client, match, { stepLabel = 'Step 2 of 2' } = {})
 
       if (!global._regionFinishers) global._regionFinishers = new Map();
       global._regionFinishers.set(voteId, finish);
+
+      setTimeout(async () => {
+        const fresh = db.get();
+        const vote = fresh.regionvotes?.[voteId];
+        if (!vote || vote.closed) return;
+        const nonVoters = (vote.players || []).filter(id => !vote.votes[id]);
+        if (nonVoters.length === 0) return;
+        try {
+          await ch.send({ content: `⏰ **30 seconds left to vote!** ${nonVoters.map(id => `<@${id}>`).join(' ')} — please vote above!`, allowedMentions: { users: nonVoters } });
+        } catch {}
+      }, 30000);
 
       setTimeout(finish, 60000);
     } catch (e) { console.error('postRegionVote error:', e.message); resolve('NA'); }

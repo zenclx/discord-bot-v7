@@ -426,6 +426,11 @@ client.on('interactionCreate', async interaction => {
     if (!vote || vote.closed) return interaction.reply({ content: '❌ Vote is closed.', flags: 64 });
     vote.votes[interaction.user.id] = choice;
     db.set(data);
+    const allVotedBo3 = (vote.players || []).length > 0 && (vote.players || []).every(id => vote.votes[id] !== undefined);
+    if (allVotedBo3) {
+      const finisher = global._bo3Finishers?.get(voteId);
+      if (finisher) { global._bo3Finishers.delete(voteId); finisher().catch(e => console.error('bo3 auto-finish:', e.message)); }
+    }
     const labels = { all: 'Bo3 All', finals: 'Finals Only Bo3', none: 'Standard Bo1' };
     return interaction.reply({ content: `✅ Vote recorded: **${labels[choice] || choice}**`, flags: 64 });
   }
@@ -449,6 +454,11 @@ client.on('interactionCreate', async interaction => {
     if (!vote || vote.closed) return interaction.reply({ content: '❌ Vote is closed.', flags: 64 });
     vote.votes[interaction.user.id] = choice;
     db.set(data);
+    const allVotedRegion = (vote.players || []).length > 0 && (vote.players || []).every(id => vote.votes[id] !== undefined);
+    if (allVotedRegion) {
+      const finisher = global._regionFinishers?.get(voteId);
+      if (finisher) { global._regionFinishers.delete(voteId); finisher().catch(e => console.error('region auto-finish:', e.message)); }
+    }
     const flags = { NA: '🌎', AEST: '🌏', GMT: '🌍' };
     return interaction.reply({ content: `✅ Voted for **${flags[choice] || ''} ${choice}**`, flags: 64 });
   }
@@ -472,6 +482,11 @@ client.on('interactionCreate', async interaction => {
     if (!vote || vote.closed) return interaction.reply({ content: '❌ Vote is closed.', flags: 64 });
     vote.votes[interaction.user.id] = choice;
     db.set(data);
+    const allVotedTeamFmt = (vote.players || []).length > 0 && (vote.players || []).every(id => vote.votes[id] !== undefined);
+    if (allVotedTeamFmt) {
+      const finisher = global._teamfmtFinishers?.get(voteId);
+      if (finisher) { global._teamfmtFinishers.delete(voteId); finisher().catch(e => console.error('teamfmt auto-finish:', e.message)); }
+    }
     const labels = { random: '🎲 Random Teams', pick: '🤝 Pick Teammate' };
     return interaction.reply({ content: `✅ Voted for **${labels[choice] || choice}**`, flags: 64 });
   }
